@@ -1,0 +1,44 @@
+camera:
+  serial: null
+  exposure_us: 8000
+  gain: 0
+  pixel_format: "Mono8"
+
+plc:
+  protocol: "FINS_TCP"
+  ip: "192.168.0.10"
+  port: 9600
+  addr:
+    busy: "W150.00"
+    done: "W150.01"
+    error: "W150.02"
+    trigger: "W151.00"
+    ack: "W151.01"
+    result_bits_start_word: "W160"
+  timeouts:
+    connect_ms: 3000
+    cycle_ms: 5000
+
+models:
+  anomaly:
+    path: "models/anomaly.onnx"
+    provider: "cuda"
+    threshold: 0.15
+    input_size: 256
+  yolo:
+    enabled: false
+    path: "models/yolo.engine"
+    conf_thres: 0.25
+    iou_thres: 0.45
+
+io:
+  save_images: true
+  output_dir: "runs/latest"
+  filename_pattern: "{ts}_{model}_{idx:02d}_{cls}.png"
+
+layout:
+  count: 28
+  order: "row_major"
+  rows: 4
+  cols: 7
+  patch_padding: 10
