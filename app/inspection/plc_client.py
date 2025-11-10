@@ -8,6 +8,7 @@ import threading
 import time
 from dataclasses import dataclass
 from typing import Iterable, List, Optional, Sequence
+import re
 
 from app.config_loader import PlcAddressConfig, PlcConfig
 
@@ -193,12 +194,77 @@ class OmronFinsTcpClient(BasePLCClient):
         self._send(fins_cmd)
 
 
+class AsciiTcpClient(BasePLCClient):
+    """Simple ASCII TCP client using 'RD <addr>\r' and 'WR <addr> <val>\r'.
+
+    Interprets any non-zero read value as True. For writing result arrays,
+    it writes sequential registers by incrementing the numeric suffix.
+    Example: start 'R160' -> writes R160, R161, ... as 1/0.
+    """
+
+    def __init__(self, config: PlcConfig):
+        self._config = config
+        self._sock: Optional[socket.socket] = None
+        self._addr_re = re.compile(r"^([A-Za-z]+)(\d+)$")
+
+    def connect(self) -> None:
+        self._sock = socket.create_connection((self._config.ip, self._config.port), timeout=self._config.timeouts.connect_ms / 1000.0)
+        self._sock.settimeout(1.0)
+        LOGGER.info("Connected (ASCII TCP) to PLC at %s:%s", self._config.ip, self._config.port)
+
+    def close(self) -> None:
+        if self._sock:
+            try:
+                self._sock.close()
+            finally:
+                self._sock = None
+
+    def _send_cmd(self, cmd: str) -> str:
+        if self._sock is None:
+            raise PLCError("PLC not connected")
+        data = (cmd + "\r").encode("utf-8")
+        self._sock.sendall(data)
+        resp = self._sock.recv(1024)
+        try:
+            return resp.decode("utf-8").strip()
+        except Exception as exc:
+            raise PLCError(f"Invalid ASCII PLC response: {resp!r}") from exc
+
+    def read_bit(self, address: str) -> bool:
+        resp = self._send_cmd(f"RD {address}")
+        try:
+            return int(resp) != 0
+        except ValueError as exc:
+            raise PLCError(f"Non-integer read from {address}: {resp}") from exc
+
+    def write_bit(self, address: str, value: bool) -> None:
+        self._send_cmd(f"WR {address} {1 if value else 0}")
+
+    def write_result_bits(self, start_word: str, bits: Sequence[bool]) -> None:
+        m = self._addr_re.match(start_word)
+        if not m:
+            raise PLCError(f"Unsupported ASCII start address: {start_word}")
+        prefix, base = m.group(1), int(m.group(2))
+        for idx, bit in enumerate(bits):
+            addr = f"{prefix}{base + idx}"
+            self.write_bit(addr, bit)
+
+
 class PlcController:
     """High level handshake manager."""
 
     def __init__(self, config: PlcConfig, client: Optional[BasePLCClient] = None) -> None:
         self.config = config
-        self.client = client or (MockPLCClient() if config.protocol != "FINS_TCP" else OmronFinsTcpClient(config))
+        if client is not None:
+            self.client = client
+        else:
+            if config.protocol == "FINS_TCP":
+                self.client = OmronFinsTcpClient(config)
+            elif config.protocol == "ASCII_TCP":
+                self.client = AsciiTcpClient(config)
+            else:
+                LOGGER.warning("Unknown PLC protocol %s; using mock", config.protocol)
+                self.client = MockPLCClient()
         self.state = PlcHandshakeState()
         self._lock = threading.Lock()
 
