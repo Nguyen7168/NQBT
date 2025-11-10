@@ -6,7 +6,7 @@ camera:
 
 plc:
   protocol: "ASCII_TCP"
-  ip: "192.168.0.10"
+  ip: "192.168.0.100"
   port: 8501
   addr:
     busy: "R1000"
@@ -21,7 +21,7 @@ plc:
 
 models:
   anomaly:
-    path: "models/anomaly.onnx"
+    path: "app/models/anomaly.onnx"
     provider: "cuda"
     threshold: 0.15
     input_size: 256
