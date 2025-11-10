@@ -80,7 +80,14 @@ class InspectionWorker(QtCore.QObject):
         self.plc = plc
         self.cropper = GridCropper(config.layout)
         self.camera = DummyCamera(config.camera) if use_dummy_camera else BaslerCamera(config.camera)
-        self.anomaly = AnomalyDetector(config.models.anomaly)
+        self.anomaly: Optional[AnomalyDetector]
+        self._anomaly_error: Optional[str] = None
+        try:
+            self.anomaly = AnomalyDetector(config.models.anomaly)
+        except Exception as exc:
+            LOGGER.warning("Failed to initialise anomaly detector: %s", exc)
+            self.anomaly = None
+            self._anomaly_error = str(exc)
         self.yolo = None
         if config.models.yolo.enabled and config.models.yolo.path:
             try:
@@ -106,6 +113,10 @@ class InspectionWorker(QtCore.QObject):
                 capture = self.camera.capture()
                 LOGGER.debug("Captured image with shape %s", capture.image.shape)
                 patches = self.cropper.crop(capture.image)
+                if self.anomaly is None:
+                    raise RuntimeError(
+                        f"Anomaly model not available: {self._anomaly_error or 'unknown error'}"
+                    )
                 anomaly = self.anomaly.infer([p.image for p in patches])
                 threshold = self.config.models.anomaly.threshold
                 statuses = ["OK" if score <= threshold else "NG" for score in anomaly.scores]
@@ -162,10 +173,12 @@ class InspectionWorker(QtCore.QObject):
             try:
                 self.config.models.anomaly.path = model_path
                 self.anomaly = AnomalyDetector(self.config.models.anomaly)
+                self._anomaly_error = None
                 LOGGER.info("Reloaded anomaly model from %s", model_path)
             except Exception as exc:
+                self.anomaly = None
+                self._anomaly_error = str(exc)
                 LOGGER.error("Failed to reload anomaly model: %s", exc)
-                raise
 
     def _build_overlay(
         self,

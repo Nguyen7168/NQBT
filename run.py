@@ -21,6 +21,12 @@ def configure_logging(log_level: str) -> None:
 
 
 def create_plc_controller(config: AppConfig, allow_mock: bool) -> tuple[PlcController, str]:
+    """Create a PLC controller and attempt connection.
+
+    If connection fails, always fall back to a mock client so the UI can start.
+    The returned status string includes the specific error to display in the UI.
+    """
+    logger = logging.getLogger(__name__)
     controller = PlcController(config.plc)
     try:
         controller.connect()
@@ -29,12 +35,19 @@ def create_plc_controller(config: AppConfig, allow_mock: bool) -> tuple[PlcContr
         controller.set_done(False)
         controller.set_error(False)
     except Exception as exc:
-        if not allow_mock:
-            raise
-        logging.getLogger(__name__).warning("Failed to connect to PLC: %s. Using mock client.", exc)
+        # Do not abort startup; fall back to a mock PLC so the app can run.
+        reason = str(exc)
+        if allow_mock:
+            logger.warning("Failed to connect to PLC: %s. Using mock client.", reason)
+        else:
+            logger.error("Failed to connect to PLC: %s. Falling back to mock to allow UI startup.", reason)
         controller = PlcController(config.plc, client=MockPLCClient())
-        controller.connect()
-        status = "Mock"
+        # Connect the mock for consistency/logging
+        try:
+            controller.connect()
+        except Exception:
+            pass
+        status = f"Disconnected: {reason} (mock)"
     return controller, status
 
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 from typing import List, Optional
+from pathlib import Path
 
 import cv2
 import numpy as np
@@ -31,6 +32,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.config = config
         self.plc = plc
         self._use_dummy_camera = use_dummy_camera
+        # Store initial PLC status string for UI
+        self._plc_status = plc_status
         self._manual_images: List[np.ndarray] = []
         self._manual_index = 0
         self.setWindowTitle("Bearing Inspection")
@@ -38,6 +41,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self._init_ui()
         self._init_workers()
+        self._show_startup_health()
 
     def _init_ui(self) -> None:
         central = QtWidgets.QWidget(self)
@@ -103,7 +107,7 @@ class MainWindow(QtWidgets.QMainWindow):
         options_menu.addAction(select_output_action)
 
         self.status_camera = QtWidgets.QLabel("Camera: Idle")
-        self.status_plc = QtWidgets.QLabel(f"PLC: {plc_status}")
+        self.status_plc = QtWidgets.QLabel(f"PLC: {self._plc_status}")
         self.statusBar().addWidget(self.status_camera)
         self.statusBar().addPermanentWidget(self.status_plc)
 
@@ -138,7 +142,42 @@ class MainWindow(QtWidgets.QMainWindow):
         self.worker.cycle_failed.connect(self._handle_failure)
         self.save_worker.finished.connect(lambda path: self.statusBar().showMessage(f"Saved results to {path}", 3000))
         self.save_worker.failed.connect(lambda msg: self.statusBar().showMessage(f"Save failed: {msg}", 5000))
-        self.status_camera.setText("Camera: Ready")
+        # Keep initial status as Idle until a successful cycle completes
+        self.status_camera.setText("Camera: Idle")
+
+    def _show_startup_health(self) -> None:
+        messages: List[str] = []
+
+        # PLC status coloring
+        if "Disconnected" in self.status_plc.text():
+            self.status_plc.setStyleSheet("color: red;")
+
+        # Camera status on startup
+        if self._use_dummy_camera:
+            self.status_camera.setText("Camera: Dummy")
+        else:
+            # Best-effort check: if pypylon is missing, we can report immediately.
+            try:
+                from app.inspection.camera import pylon  # type: ignore
+            except Exception:
+                pylon = None  # type: ignore
+            if pylon is None:
+                self.status_camera.setText("Camera: Not available (pypylon missing)")
+                messages.append("Camera not available: pypylon is not installed")
+            else:
+                # We haven't attempted to open the device yet.
+                self.status_camera.setText("Camera: Not connected")
+
+        # Model availability
+        model_path = Path(self.config.models.anomaly.path)
+        if not model_path.exists():
+            self.model_label.setText(f"{model_path} (missing)")
+            self.model_label.setStyleSheet("color: red;")
+            messages.append(f"Anomaly model not found: {model_path}")
+
+        if messages:
+            QtWidgets.QMessageBox.warning(self, "Startup issues", "\n".join(messages))
+            self.statusBar().showMessage("; ".join(messages), 5000)
 
     @QtCore.pyqtSlot()
     def _handle_trigger(self) -> None:

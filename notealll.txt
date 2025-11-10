@@ -1,0 +1,3 @@
+Test camera:
+Thực: python test_camera.py --config config.yaml
+Dummy: python test_camera.py --config config.yaml --use-dummy-camera
