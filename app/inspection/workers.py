@@ -67,6 +67,8 @@ class InspectionWorker(QtCore.QObject):
     cycle_started = QtCore.pyqtSignal()
     cycle_completed = QtCore.pyqtSignal(InspectionResult)
     cycle_failed = QtCore.pyqtSignal(str)
+    camera_ready = QtCore.pyqtSignal()
+    camera_failed = QtCore.pyqtSignal(str)
 
     def __init__(
         self,
@@ -100,6 +102,19 @@ class InspectionWorker(QtCore.QObject):
                 LOGGER.warning("Failed to initialise YOLO detector: %s", exc)
         self._lock = threading.Lock()
         self._camera_ready = False
+
+    @QtCore.pyqtSlot()
+    def connect_camera(self) -> None:
+        with self._lock:
+            try:
+                if not self._camera_ready:
+                    self.camera.connect()
+                    self._camera_ready = True
+                self.camera_ready.emit()
+            except Exception as exc:
+                self._camera_ready = False
+                LOGGER.error("Camera connection failed: %s", exc)
+                self.camera_failed.emit(str(exc))
 
     @QtCore.pyqtSlot()
     def run_cycle(self) -> None:

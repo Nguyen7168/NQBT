@@ -140,6 +140,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.worker.cycle_started.connect(lambda: self.status_camera.setText("Camera: Busy"))
         self.worker.cycle_completed.connect(self._update_ui)
         self.worker.cycle_failed.connect(self._handle_failure)
+        self.worker.camera_ready.connect(lambda: self.status_camera.setText("Camera: Ready"))
+        self.worker.camera_failed.connect(lambda msg: (self.status_camera.setText("Camera: Error"), QtWidgets.QMessageBox.critical(self, "Camera", msg)))
         self.save_worker.finished.connect(lambda path: self.statusBar().showMessage(f"Saved results to {path}", 3000))
         self.save_worker.failed.connect(lambda msg: self.statusBar().showMessage(f"Save failed: {msg}", 5000))
         # Keep initial status as Idle until a successful cycle completes
@@ -165,8 +167,9 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.status_camera.setText("Camera: Not available (pypylon missing)")
                 messages.append("Camera not available: pypylon is not installed")
             else:
-                # We haven't attempted to open the device yet.
-                self.status_camera.setText("Camera: Not connected")
+                # Try to proactively connect camera via worker thread
+                QtCore.QMetaObject.invokeMethod(self.worker, "connect_camera", QtCore.Qt.QueuedConnection)
+                self.status_camera.setText("Camera: Connecting...")
 
         # Model availability
         model_path = Path(self.config.models.anomaly.path)
