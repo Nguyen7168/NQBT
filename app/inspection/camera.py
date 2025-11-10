@@ -157,19 +157,35 @@ class BaslerCamera:
         if self._camera is None:
             raise CameraError("Camera not connected")
         result = self._camera.RetrieveResult(timeout_ms, pylon.TimeoutHandling_ThrowException)
-        if not result.GrabSucceeded():
-            raise CameraError(f"Failed to grab image: {result.ErrorDescription}")
-        img = pylon.PylonImage()
-        img.AttachGrabResultBuffer(result)
-        converted = pylon.ImageFormatConverter()
-        converted.OutputPixelFormat = pylon.PixelType_RGB8packed
-        converted.OutputBitAlignment = pylon.OutputBitAlignment_MsbAligned
-        image = converted.Convert(result)
-        array = image.GetArray()
-        array = cv2.cvtColor(array, cv2.COLOR_RGB2BGR)
-        img.Release()
-        result.Release()
-        return CaptureResult(image=array, timestamp_ms=result.TimeStamp)
+        try:
+            if not result.GrabSucceeded():
+                # Ensure we can read a textual description if available
+                try:
+                    desc = result.ErrorDescription
+                except Exception:
+                    desc = "Unknown camera grab error"
+                raise CameraError(f"Failed to grab image: {desc}")
+
+            # Read timestamp before releasing the grab result
+            timestamp = 0.0
+            try:
+                timestamp = float(result.TimeStamp)
+            except Exception:
+                pass
+
+            # Convert to RGB8 then to BGR for OpenCV
+            converter = pylon.ImageFormatConverter()
+            converter.OutputPixelFormat = pylon.PixelType_RGB8packed
+            converter.OutputBitAlignment = pylon.OutputBitAlignment_MsbAligned
+            converted = converter.Convert(result)
+            array = converted.GetArray()
+            array = cv2.cvtColor(array, cv2.COLOR_RGB2BGR)
+            return CaptureResult(image=array, timestamp_ms=timestamp)
+        finally:
+            try:
+                result.Release()
+            except Exception:
+                pass
 
     def __enter__(self) -> "BaslerCamera":
         self.connect()
