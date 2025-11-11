@@ -38,6 +38,19 @@ class AnomalyDetector:
         self._session = ort.InferenceSession(config.path, sess_options=session_options, providers=providers)
         self._input_name = self._session.get_inputs()[0].name
         self._output_name = self._session.get_outputs()[0].name
+        # Try to infer expected input HxW from the model; fall back to config
+        try:
+            ishape = self._session.get_inputs()[0].shape  # e.g. [1,3,H,W]
+            h, w = None, None
+            if ishape and len(ishape) >= 4:
+                h = ishape[-2] if isinstance(ishape[-2], int) else None
+                w = ishape[-1] if isinstance(ishape[-1], int) else None
+            if h is not None and w is not None:
+                self._input_hw = (int(h), int(w))
+            else:
+                self._input_hw = (config.input_size, config.input_size)
+        except Exception:
+            self._input_hw = (config.input_size, config.input_size)
 
     @staticmethod
     def _build_providers(provider_name: str) -> Sequence[str | tuple[str, dict[str, str]]]:
@@ -61,14 +74,20 @@ class AnomalyDetector:
         for patch in patches:
             blob = self._preprocess(patch)
             outputs = self._session.run([self._output_name], {self._input_name: blob})
-            score = float(outputs[0].squeeze())
+            arr = np.asarray(outputs[0]).squeeze()
+            # Accept scalar, vector, or map outputs; reduce to a single score.
+            if arr.ndim == 0:
+                score = float(arr)
+            else:
+                score = float(np.max(arr))
             scores.append(score)
         elapsed = (perf_counter() - start) * 1000.0
         LOGGER.debug("Anomaly inference finished in %.2f ms", elapsed)
         return AnomalyResult(scores=scores, inference_ms=elapsed)
 
     def _preprocess(self, patch: np.ndarray) -> np.ndarray:
-        resized = cv2.resize(patch, (self._config.input_size, self._config.input_size), interpolation=cv2.INTER_AREA)
+        h, w = self._input_hw
+        resized = cv2.resize(patch, (w, h), interpolation=cv2.INTER_AREA)
         if resized.ndim == 2:
             resized = np.expand_dims(resized, axis=-1)
         if resized.shape[2] == 1:
