@@ -67,7 +67,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         info_group = QtWidgets.QGroupBox("Summary")
         form = QtWidgets.QFormLayout(info_group)
-        self.model_label = QtWidgets.QLabel(self.config.models.anomaly.path)
+        self.model_label = QtWidgets.QLabel(self._current_model_path())
         self.threshold_label = QtWidgets.QLabel(f"{self._current_threshold():.2f}")
         self.ng_label = QtWidgets.QLabel("0")
         self.inference_label = QtWidgets.QLabel("0 ms")
@@ -188,7 +188,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.status_camera.setText("Camera: Connecting...")
 
         # Model availability
-        model_path = Path(self.config.models.anomaly.path)
+        model_path = Path(self._current_model_path())
         if not model_path.exists():
             self.model_label.setText(f"{model_path} (missing)")
             self.model_label.setStyleSheet("color: red;")
@@ -246,16 +246,16 @@ class MainWindow(QtWidgets.QMainWindow):
     def _toggle_save_binary(self, enabled: bool) -> None:
         self.config.io.save_binary = enabled
 
-    def _toggle_save_heatmap(self, enabled: bool) -> None:
-        self.config.io.save_heatmap = enabled
-
-    def _toggle_save_binary(self, enabled: bool) -> None:
-        self.config.io.save_binary = enabled
-
     def _select_model(self) -> None:
-        file_path, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Select ONNX model", str(self.config.models.anomaly.path), "ONNX files (*.onnx);;All files (*)")
+        file_path, _ = QtWidgets.QFileDialog.getOpenFileName(
+            self, "Select ONNX model", str(self._current_model_path()), "ONNX files (*.onnx);;All files (*)"
+        )
         if file_path:
-            self.config.models.anomaly.path = file_path
+            # Update config branch according to current algo
+            if (self.config.models.algo or "INP").upper() == "GLASS":
+                self.config.models.glass.path = file_path
+            else:
+                self.config.models.inp.path = file_path
             self.model_label.setText(file_path)
             QtCore.QMetaObject.invokeMethod(
                 self.worker,
@@ -312,9 +312,16 @@ class MainWindow(QtWidgets.QMainWindow):
         )
 
     def _current_threshold(self) -> float:
-        cfg = self.config.models.anomaly
-        algo = (cfg.algo or "INP").upper()
-        return getattr(cfg, "glass_threshold", cfg.threshold) if algo == "GLASS" else getattr(cfg, "inp_threshold", cfg.threshold)
+        algo = (self.config.models.algo or "INP").upper()
+        return (
+            float(self.config.models.glass.glass_threshold)
+            if algo == "GLASS"
+            else float(self.config.models.inp.inp_threshold)
+        )
+
+    def _current_model_path(self) -> str:
+        algo = (self.config.models.algo or "INP").upper()
+        return self.config.models.glass.path if algo == "GLASS" else self.config.models.inp.path
 
     def closeEvent(self, event: QtGui.QCloseEvent) -> None:  # pragma: no cover - UI cleanup
         try:

@@ -87,7 +87,7 @@ class InspectionWorker(QtCore.QObject):
         self.anomaly: Optional[AnomalyDetector]
         self._anomaly_error: Optional[str] = None
         try:
-            self.anomaly = AnomalyDetector(config.models.anomaly)
+            self.anomaly = AnomalyDetector(config.models)
         except Exception as exc:
             LOGGER.warning("Failed to initialise anomaly detector: %s", exc)
             self.anomaly = None
@@ -135,7 +135,13 @@ class InspectionWorker(QtCore.QObject):
                         f"Anomaly model not available: {self._anomaly_error or 'unknown error'}"
                     )
                 anomaly = self.anomaly.infer([p.image for p in patches])
-                threshold = self.config.models.anomaly.threshold
+                algo = (self.config.models.algo or "INP").upper()
+                if algo == "GLASS":
+                    threshold = float(self.config.models.glass.glass_threshold)
+                    model_path = self.config.models.glass.path
+                else:
+                    threshold = float(self.config.models.inp.inp_threshold)
+                    model_path = self.config.models.inp.path
                 statuses = ["OK" if score <= threshold else "NG" for score in anomaly.scores]
                 ng_total = sum(1 for status in statuses if status == "NG")
 
@@ -157,7 +163,7 @@ class InspectionWorker(QtCore.QObject):
                     anomaly_inference_ms=anomaly.inference_ms,
                     yolo_result=yolo_result,
                     timestamp=time.time(),
-                    model_path=self.config.models.anomaly.path,
+                    model_path=model_path,
                     threshold=threshold,
                     anomaly_maps=anomaly.maps,
                 )
@@ -189,8 +195,13 @@ class InspectionWorker(QtCore.QObject):
     def reload_anomaly_model(self, model_path: str) -> None:
         with self._lock:
             try:
-                self.config.models.anomaly.path = model_path
-                self.anomaly = AnomalyDetector(self.config.models.anomaly)
+                # Update the current algorithm's model path
+                if (self.config.models.algo or "INP").upper() == "GLASS":
+                    self.config.models.glass.path = model_path
+                else:
+                    self.config.models.inp.path = model_path
+                # Recreate detector with updated models config
+                self.anomaly = AnomalyDetector(self.config.models)
                 self._anomaly_error = None
                 LOGGER.info("Reloaded anomaly model from %s", model_path)
             except Exception as exc:
@@ -218,11 +229,13 @@ class InspectionWorker(QtCore.QObject):
                         f"Anomaly model not available: {self._anomaly_error or 'unknown error'}"
                     )
                 anomaly = self.anomaly.infer([p.image for p in patches])
-                algo = (self.config.models.anomaly.algo or "INP").upper()
+                algo = (self.config.models.algo or "INP").upper()
                 if algo == "GLASS":
-                    threshold = getattr(self.config.models.anomaly, "glass_threshold", self.config.models.anomaly.threshold)
+                    threshold = float(self.config.models.glass.glass_threshold)
+                    model_path = self.config.models.glass.path
                 else:
-                    threshold = getattr(self.config.models.anomaly, "inp_threshold", self.config.models.anomaly.threshold)
+                    threshold = float(self.config.models.inp.inp_threshold)
+                    model_path = self.config.models.inp.path
                 statuses = ["OK" if score <= threshold else "NG" for score in anomaly.scores]
                 ng_total = sum(1 for status in statuses if status == "NG")
 
@@ -244,7 +257,7 @@ class InspectionWorker(QtCore.QObject):
                     anomaly_inference_ms=anomaly.inference_ms,
                     yolo_result=yolo_result,
                     timestamp=time.time(),
-                    model_path=self.config.models.anomaly.path,
+                    model_path=model_path,
                     threshold=threshold,
                     anomaly_maps=anomaly.maps,
                 )
@@ -308,11 +321,11 @@ class SaveWorker(QtCore.QObject):
             if (self.config.io.save_heatmap or self.config.io.save_binary) and result.anomaly_maps:
                 maps_dir = output_dir / "maps"
                 ensure_dir(maps_dir)
-                algo = (self.config.models.anomaly.algo or "INP").upper()
+                algo = (self.config.models.algo or "INP").upper()
                 if algo == "GLASS":
-                    bin_th = float(getattr(self.config.models.anomaly, "glass_bin_thresh", 0.8))
+                    bin_th = float(self.config.models.glass.glass_bin_thresh)
                 else:
-                    bin_th = float(getattr(self.config.models.anomaly, "inp_bin_thresh", 0.2))
+                    bin_th = float(self.config.models.inp.inp_bin_thresh)
                 for patch, status, amap in zip(result.patches, result.statuses, result.anomaly_maps):
                     idx = patch.index
                     # Normalize to 0..255 uint8 for saving

@@ -15,7 +15,7 @@ try:
 except Exception:  # pragma: no cover - optional dependency
     ort = None  # type: ignore
 
-from app.config_loader import AnomalyModelConfig
+from app.config_loader import ModelConfig, InpModelConfig, GlassModelConfig
 
 LOGGER = logging.getLogger(__name__)
 
@@ -28,7 +28,7 @@ class AnomalyResult:
 
 
 class _BaseDetector:
-    def __init__(self, config: AnomalyModelConfig):
+    def __init__(self, config):
         if ort is None:
             raise RuntimeError("onnxruntime is not installed")
         self._config = config
@@ -58,7 +58,7 @@ class _BaseDetector:
 
 
 class _InpOnnxDetector(_BaseDetector):
-    def __init__(self, config: AnomalyModelConfig):
+    def __init__(self, config: InpModelConfig):
         super().__init__(config)
         # Infer expected HxW from model; fallback to config
         try:
@@ -75,12 +75,12 @@ class _InpOnnxDetector(_BaseDetector):
         # Output name: prefer first
         self._output_name = self._output_names[0]
         # INP-specific params
-        self._blur_k = int(getattr(config, "inp_blur_kernel", 5))
+        self._blur_k = int(config.inp_blur_kernel)
         if self._blur_k % 2 == 0:
             self._blur_k += 1
-        self._blur_sigma = float(getattr(config, "inp_blur_sigma", 4.0))
-        self._max_ratio = float(getattr(config, "inp_max_ratio", 0.0))
-        self._bin_thresh = float(getattr(config, "inp_bin_thresh", 0.2))
+        self._blur_sigma = float(config.inp_blur_sigma)
+        self._max_ratio = float(config.inp_max_ratio)
+        self._bin_thresh = float(config.inp_bin_thresh)
 
     def infer(self, patches: Sequence[np.ndarray]) -> AnomalyResult:
         start = perf_counter()
@@ -148,16 +148,16 @@ class _InpOnnxDetector(_BaseDetector):
 
 
 class _GlassOnnxDetector(_BaseDetector):
-    def __init__(self, config: AnomalyModelConfig):
+    def __init__(self, config: GlassModelConfig):
         super().__init__(config)
         self._size = int(config.input_size)
-        self._batch = max(1, int(getattr(config, "glass_batch", 8)))
-        self._blur_k = int(getattr(config, "glass_blur_kernel", 33))
+        self._batch = max(1, int(config.glass_batch))
+        self._blur_k = int(config.glass_blur_kernel)
         # kernel must be odd
         if self._blur_k % 2 == 0:
             self._blur_k += 1
-        self._blur_sigma = float(getattr(config, "glass_blur_sigma", 4.0))
-        self._norm_eps = float(getattr(config, "glass_norm_eps", 1e-8))
+        self._blur_sigma = float(config.glass_blur_sigma)
+        self._norm_eps = float(config.glass_norm_eps)
 
     def infer(self, patches: Sequence[np.ndarray]) -> AnomalyResult:
         start = perf_counter()
@@ -200,12 +200,12 @@ class _GlassOnnxDetector(_BaseDetector):
 
 
 class AnomalyDetector:
-    def __init__(self, config: AnomalyModelConfig):
-        algo = (config.algo or "INP").upper()
+    def __init__(self, models: ModelConfig):
+        algo = (models.algo or "INP").upper()
         if algo == "GLASS":
-            self._impl = _GlassOnnxDetector(config)
+            self._impl = _GlassOnnxDetector(models.glass)
         else:
-            self._impl = _InpOnnxDetector(config)
+            self._impl = _InpOnnxDetector(models.inp)
 
     def infer(self, patches: Sequence[np.ndarray]) -> AnomalyResult:
         return self._impl.infer(patches)

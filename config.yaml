@@ -20,18 +20,26 @@ plc:
     cycle_ms: 5000
 
 models:
-  anomaly:
+  algo: "GLASS"  # INP or GLASS
+  inp:
     path: "app/models/anomaly.onnx"
     provider: "cuda"
-    threshold: 0.15
-    algo: "INP"
+    input_size: 448
     inp_threshold: 0.15
-    glass_threshold: 0.5
     inp_blur_kernel: 5
     inp_blur_sigma: 4.0
     inp_max_ratio: 0.0
     inp_bin_thresh: 0.2
-    input_size: 448
+  glass:
+    path: "app/models/glass.onnx"
+    provider: "cuda"
+    input_size: 288
+    glass_threshold: 0.5
+    glass_batch: 8
+    glass_blur_kernel: 33
+    glass_blur_sigma: 4.0
+    glass_norm_eps: 1.0e-8
+    glass_bin_thresh: 0.8
   yolo:
     enabled: false
     path: "models/yolo.engine"
@@ -42,6 +50,8 @@ io:
   save_images: true
   output_dir: "runs/latest"
   filename_pattern: "{ts}_{model}_{idx:02d}_{cls}.png"
+  save_heatmap: false
+  save_binary: false
 
 layout:
   count: 20

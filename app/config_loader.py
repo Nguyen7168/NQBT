@@ -42,21 +42,23 @@ class PlcConfig:
 
 
 @dataclass
-class AnomalyModelConfig:
+class InpModelConfig:
     path: str
     provider: str = "cuda"
-    # Deprecated: use algo-specific thresholds below
-    threshold: float = 0.15
     input_size: int = 256
-    algo: str = "INP"  # "INP" or "GLASS"
-    # Algo-specific thresholds
     inp_threshold: float = 0.15
-    glass_threshold: float = 0.5
-    # INP parameters
     inp_blur_kernel: int = 5
     inp_blur_sigma: float = 4.0
     inp_max_ratio: float = 0.0  # 0 -> use max; otherwise mean of top-k ratio
     inp_bin_thresh: float = 0.2
+
+
+@dataclass
+class GlassModelConfig:
+    path: str
+    provider: str = "cuda"
+    input_size: int = 288
+    glass_threshold: float = 0.5
     glass_batch: int = 8
     glass_blur_kernel: int = 33
     glass_blur_sigma: float = 4.0
@@ -74,7 +76,9 @@ class YoloModelConfig:
 
 @dataclass
 class ModelConfig:
-    anomaly: AnomalyModelConfig
+    algo: str = "INP"  # "INP" or "GLASS"
+    inp: InpModelConfig = field(default_factory=lambda: InpModelConfig(path=""))
+    glass: GlassModelConfig = field(default_factory=lambda: GlassModelConfig(path=""))
     yolo: YoloModelConfig = field(default_factory=YoloModelConfig)
 
 
@@ -159,9 +163,39 @@ def load_config(path: str | Path) -> AppConfig:
     )
 
     models_raw = _require(raw, "models")
-    anomaly = AnomalyModelConfig(**_require(models_raw, "anomaly"))
+    algo = models_raw.get("algo", "INP")
+    # Support both new separated config and legacy single anomaly block
+    if "inp" in models_raw and "glass" in models_raw:
+        inp = InpModelConfig(**_require(models_raw, "inp"))
+        glass = GlassModelConfig(**_require(models_raw, "glass"))
+    elif "anomaly" in models_raw:
+        # Legacy: map common fields into INP; provide a minimal GLASS with same path
+        legacy = _require(models_raw, "anomaly")
+        inp = InpModelConfig(
+            path=_require(legacy, "path"),
+            provider=legacy.get("provider", "cuda"),
+            input_size=int(legacy.get("input_size", 256)),
+            inp_threshold=float(legacy.get("inp_threshold", legacy.get("threshold", 0.15))),
+            inp_blur_kernel=int(legacy.get("inp_blur_kernel", 5)),
+            inp_blur_sigma=float(legacy.get("inp_blur_sigma", 4.0)),
+            inp_max_ratio=float(legacy.get("inp_max_ratio", 0.0)),
+            inp_bin_thresh=float(legacy.get("inp_bin_thresh", 0.2)),
+        )
+        glass = GlassModelConfig(
+            path=_require(legacy, "path"),
+            provider=legacy.get("provider", "cuda"),
+            input_size=int(legacy.get("input_size", 288)),
+            glass_threshold=float(legacy.get("glass_threshold", 0.5)),
+            glass_batch=int(legacy.get("glass_batch", 8)),
+            glass_blur_kernel=int(legacy.get("glass_blur_kernel", 33)),
+            glass_blur_sigma=float(legacy.get("glass_blur_sigma", 4.0)),
+            glass_norm_eps=float(legacy.get("glass_norm_eps", 1e-8)),
+            glass_bin_thresh=float(legacy.get("glass_bin_thresh", 0.8)),
+        )
+    else:
+        raise ConfigError("Missing models.inp and models.glass sections")
     yolo = YoloModelConfig(**models_raw.get("yolo", {}))
-    models = ModelConfig(anomaly=anomaly, yolo=yolo)
+    models = ModelConfig(algo=algo, inp=inp, glass=glass, yolo=yolo)
 
     io_cfg = IOConfig(**raw.get("io", {}))
     layout = LayoutConfig(**_require(raw, "layout"))
