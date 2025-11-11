@@ -34,12 +34,12 @@ def numpy_to_qimage(image: np.ndarray) -> QImage:
 
 
 def save_image(path: str | Path, image: np.ndarray) -> None:
+    """Save an image to disk.
+    Assumes image is in OpenCV BGR or grayscale format (as used across the app).
+    Writes directly without color conversion to avoid unintended shifts.
+    """
     ensure_dir(Path(path).parent)
-    if image.ndim == 3 and image.shape[2] == 3:
-        bgr = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
-        cv2.imwrite(str(path), bgr)
-    else:
-        cv2.imwrite(str(path), image)
+    cv2.imwrite(str(path), image)
 
 
 __all__ = ["ensure_dir", "numpy_to_qimage", "save_image"]
