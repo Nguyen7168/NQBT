@@ -15,6 +15,11 @@ from datetime import datetime
 import cv2
 import numpy as np
 
+import sys
+from pathlib import Path
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 from app.config_loader import load_config
 from app.models.anomaly import AnomalyDetector
 from app.utils import ensure_dir, save_image
