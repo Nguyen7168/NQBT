@@ -55,13 +55,13 @@ def main() -> int:
         stem = p.stem
         out_dir = base_out / stem
         ensure_dir(out_dir)
-        save_image(out_dir / "overlay.png", overlay)
-        save_image(out_dir / "raw.png", img)
+        cv2.imwrite(str(out_dir / "overlay.png"), overlay)
+        cv2.imwrite(str(out_dir / "raw.png"), img)
         # Save individual patches
         patches_dir = out_dir / "patches"
         ensure_dir(patches_dir)
         for pr in patches:
-            save_image(patches_dir / f"patch_{pr.index:02d}.png", pr.image)
+            cv2.imwrite(str(patches_dir / f"patch_{pr.index:02d}.png"), pr.image)
         print(f"Saved crop results for {p} -> {out_dir}")
 
     return 0
