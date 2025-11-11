@@ -16,7 +16,7 @@ from PyQt5 import QtCore
 
 from app.config_loader import AppConfig
 from app.inspection.camera import BaslerCamera, DummyCamera
-from app.inspection.cropping import CropResult, GridCropper
+from app.inspection.cropping import CropResult, CircleCropper
 from app.inspection.plc_client import PlcController
 from app.models.anomaly import AnomalyDetector
 from app.models.yolo import YoloDetector, YoloResult
@@ -80,7 +80,8 @@ class InspectionWorker(QtCore.QObject):
         super().__init__(parent)
         self.config = config
         self.plc = plc
-        self.cropper = GridCropper(config.layout)
+        # Always use circle-based cropper per current requirements
+        self.cropper = CircleCropper(config.layout)
         self.camera = DummyCamera(config.camera) if use_dummy_camera else BaslerCamera(config.camera)
         self.anomaly: Optional[AnomalyDetector]
         self._anomaly_error: Optional[str] = None

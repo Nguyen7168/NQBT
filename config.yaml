@@ -42,3 +42,15 @@ layout:
   rows: 4
   cols: 7
   patch_padding: 10
+  crop_method: "circle"
+  circle_min_radius: 300
+  circle_max_radius: 340
+  circle_dp: 1.0
+  circle_minDist: 600
+  circle_param1: 200
+  circle_param2: 9
+  circle_radius_expand: 16
+  circle_erode_iter: 5
+  circle_dilate_iter: 5
+  circle_blur_kernel: 5
+  circle_threshold: 50

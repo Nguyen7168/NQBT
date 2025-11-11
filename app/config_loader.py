@@ -77,6 +77,20 @@ class LayoutConfig:
     rows: int = 4
     cols: int = 7
     patch_padding: int = 0
+    # Deprecated: was used to select cropper. Grid cropper removed; always circle-based.
+    crop_method: str = "circle"
+    # Circle crop parameters (defaults inspired by crop_hc_23_240.py)
+    circle_min_radius: int = 300
+    circle_max_radius: int = 340
+    circle_dp: float = 1.0
+    circle_minDist: float = 600.0
+    circle_param1: float = 200.0
+    circle_param2: float = 9.0
+    circle_radius_expand: int = 16
+    circle_erode_iter: int = 5
+    circle_dilate_iter: int = 5
+    circle_blur_kernel: int = 5
+    circle_threshold: int = 50
 
 
 @dataclass
