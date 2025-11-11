@@ -68,7 +68,7 @@ class MainWindow(QtWidgets.QMainWindow):
         info_group = QtWidgets.QGroupBox("Summary")
         form = QtWidgets.QFormLayout(info_group)
         self.model_label = QtWidgets.QLabel(self.config.models.anomaly.path)
-        self.threshold_label = QtWidgets.QLabel(f"{self.config.models.anomaly.threshold:.2f}")
+        self.threshold_label = QtWidgets.QLabel(f"{self._current_threshold():.2f}")
         self.ng_label = QtWidgets.QLabel("0")
         self.inference_label = QtWidgets.QLabel("0 ms")
         form.addRow("Model", self.model_label)
@@ -100,6 +100,16 @@ class MainWindow(QtWidgets.QMainWindow):
         self.save_images_action.setChecked(self.config.io.save_images)
         options_menu.addAction(self.save_images_action)
 
+        self.save_heatmap_action = QtWidgets.QAction("Save heatmaps (per patch)", self)
+        self.save_heatmap_action.setCheckable(True)
+        self.save_heatmap_action.setChecked(getattr(self.config.io, "save_heatmap", False))
+        options_menu.addAction(self.save_heatmap_action)
+
+        self.save_binary_action = QtWidgets.QAction("Save binary masks (per patch)", self)
+        self.save_binary_action.setCheckable(True)
+        self.save_binary_action.setChecked(getattr(self.config.io, "save_binary", False))
+        options_menu.addAction(self.save_binary_action)
+
         self.enable_yolo_action = QtWidgets.QAction("Enable YOLO", self)
         self.enable_yolo_action.setCheckable(True)
         self.enable_yolo_action.setChecked(self.config.models.yolo.enabled)
@@ -123,6 +133,8 @@ class MainWindow(QtWidgets.QMainWindow):
         select_output_action.triggered.connect(self._select_output_dir)
         self.save_images_action.toggled.connect(self._toggle_save_images)
         self.enable_yolo_action.toggled.connect(self._toggle_yolo)
+        self.save_heatmap_action.toggled.connect(self._toggle_save_heatmap)
+        self.save_binary_action.toggled.connect(self._toggle_save_binary)
         self.run_anomaly_button.setEnabled(False)
 
     def _init_workers(self) -> None:
@@ -228,6 +240,18 @@ class MainWindow(QtWidgets.QMainWindow):
     def _toggle_yolo(self, enabled: bool) -> None:
         self.config.models.yolo.enabled = enabled
 
+    def _toggle_save_heatmap(self, enabled: bool) -> None:
+        self.config.io.save_heatmap = enabled
+
+    def _toggle_save_binary(self, enabled: bool) -> None:
+        self.config.io.save_binary = enabled
+
+    def _toggle_save_heatmap(self, enabled: bool) -> None:
+        self.config.io.save_heatmap = enabled
+
+    def _toggle_save_binary(self, enabled: bool) -> None:
+        self.config.io.save_binary = enabled
+
     def _select_model(self) -> None:
         file_path, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Select ONNX model", str(self.config.models.anomaly.path), "ONNX files (*.onnx);;All files (*)")
         if file_path:
@@ -286,6 +310,11 @@ class MainWindow(QtWidgets.QMainWindow):
             QtCore.Qt.QueuedConnection,
             QtCore.Q_ARG(object, image),
         )
+
+    def _current_threshold(self) -> float:
+        cfg = self.config.models.anomaly
+        algo = (cfg.algo or "INP").upper()
+        return getattr(cfg, "glass_threshold", cfg.threshold) if algo == "GLASS" else getattr(cfg, "inp_threshold", cfg.threshold)
 
     def closeEvent(self, event: QtGui.QCloseEvent) -> None:  # pragma: no cover - UI cleanup
         try:

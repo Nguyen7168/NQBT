@@ -38,6 +38,7 @@ class InspectionResult:
     timestamp: float
     model_path: str
     threshold: float
+    anomaly_maps: Optional[List[np.ndarray]] = None  # Optional per-patch normalized maps
 
     def to_json(self) -> Dict[str, object]:
         ts = datetime.fromtimestamp(self.timestamp, tz=timezone.utc).isoformat()
@@ -158,6 +159,7 @@ class InspectionWorker(QtCore.QObject):
                     timestamp=time.time(),
                     model_path=self.config.models.anomaly.path,
                     threshold=threshold,
+                    anomaly_maps=anomaly.maps,
                 )
 
                 self.plc.write_results([status == "OK" for status in statuses])
@@ -216,7 +218,11 @@ class InspectionWorker(QtCore.QObject):
                         f"Anomaly model not available: {self._anomaly_error or 'unknown error'}"
                     )
                 anomaly = self.anomaly.infer([p.image for p in patches])
-                threshold = self.config.models.anomaly.threshold
+                algo = (self.config.models.anomaly.algo or "INP").upper()
+                if algo == "GLASS":
+                    threshold = getattr(self.config.models.anomaly, "glass_threshold", self.config.models.anomaly.threshold)
+                else:
+                    threshold = getattr(self.config.models.anomaly, "inp_threshold", self.config.models.anomaly.threshold)
                 statuses = ["OK" if score <= threshold else "NG" for score in anomaly.scores]
                 ng_total = sum(1 for status in statuses if status == "NG")
 
@@ -240,6 +246,7 @@ class InspectionWorker(QtCore.QObject):
                     timestamp=time.time(),
                     model_path=self.config.models.anomaly.path,
                     threshold=threshold,
+                    anomaly_maps=anomaly.maps,
                 )
 
                 self.cycle_completed.emit(result)
@@ -297,6 +304,27 @@ class SaveWorker(QtCore.QObject):
             save_image(overlay_path, result.overlay_image)
             with json_path.open("w", encoding="utf-8") as fh:
                 json.dump(result.to_json(), fh, indent=2)
+            # Optionally save per-patch heatmaps and binary masks if available
+            if (self.config.io.save_heatmap or self.config.io.save_binary) and result.anomaly_maps:
+                maps_dir = output_dir / "maps"
+                ensure_dir(maps_dir)
+                algo = (self.config.models.anomaly.algo or "INP").upper()
+                if algo == "GLASS":
+                    bin_th = float(getattr(self.config.models.anomaly, "glass_bin_thresh", 0.8))
+                else:
+                    bin_th = float(getattr(self.config.models.anomaly, "inp_bin_thresh", 0.2))
+                for patch, status, amap in zip(result.patches, result.statuses, result.anomaly_maps):
+                    idx = patch.index
+                    # Normalize to 0..255 uint8 for saving
+                    gray = np.clip(amap * 255.0, 0, 255).astype(np.uint8)
+                    if self.config.io.save_heatmap:
+                        heat = cv2.applyColorMap(gray, cv2.COLORMAP_JET)
+                        heat_path = maps_dir / f"heatmap_{idx:02d}.png"
+                        cv2.imwrite(str(heat_path), heat)
+                    if self.config.io.save_binary:
+                        binary = (amap >= bin_th).astype(np.uint8) * 255
+                        bin_path = maps_dir / f"binary_{idx:02d}.png"
+                        cv2.imwrite(str(bin_path), binary)
             self.finished.emit(str(output_dir))
         except Exception as exc:
             LOGGER.exception("Failed to save inspection artefacts: %s", exc)

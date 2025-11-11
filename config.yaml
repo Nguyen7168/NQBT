@@ -24,6 +24,13 @@ models:
     path: "app/models/anomaly.onnx"
     provider: "cuda"
     threshold: 0.15
+    algo: "INP"
+    inp_threshold: 0.15
+    glass_threshold: 0.5
+    inp_blur_kernel: 5
+    inp_blur_sigma: 4.0
+    inp_max_ratio: 0.0
+    inp_bin_thresh: 0.2
     input_size: 448
   yolo:
     enabled: false

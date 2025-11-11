@@ -45,8 +45,23 @@ class PlcConfig:
 class AnomalyModelConfig:
     path: str
     provider: str = "cuda"
+    # Deprecated: use algo-specific thresholds below
     threshold: float = 0.15
     input_size: int = 256
+    algo: str = "INP"  # "INP" or "GLASS"
+    # Algo-specific thresholds
+    inp_threshold: float = 0.15
+    glass_threshold: float = 0.5
+    # INP parameters
+    inp_blur_kernel: int = 5
+    inp_blur_sigma: float = 4.0
+    inp_max_ratio: float = 0.0  # 0 -> use max; otherwise mean of top-k ratio
+    inp_bin_thresh: float = 0.2
+    glass_batch: int = 8
+    glass_blur_kernel: int = 33
+    glass_blur_sigma: float = 4.0
+    glass_norm_eps: float = 1e-8
+    glass_bin_thresh: float = 0.8
 
 
 @dataclass
@@ -68,6 +83,8 @@ class IOConfig:
     save_images: bool = True
     output_dir: str = "runs"
     filename_pattern: str = "{ts}_{model}_{idx:02d}_{cls}.png"
+    save_heatmap: bool = False
+    save_binary: bool = False
 
 
 @dataclass
