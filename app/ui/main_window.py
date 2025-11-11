@@ -81,11 +81,13 @@ class MainWindow(QtWidgets.QMainWindow):
         self.capture_button = QtWidgets.QPushButton("Capture")
         self.load_model_button = QtWidgets.QPushButton("Load model")
         self.open_image_button = QtWidgets.QPushButton("Open image")
+        self.run_anomaly_button = QtWidgets.QPushButton("Run anomaly")
         self.prev_button = QtWidgets.QPushButton("Previous")
         self.next_button = QtWidgets.QPushButton("Next")
         button_layout.addWidget(self.capture_button)
         button_layout.addWidget(self.load_model_button)
         button_layout.addWidget(self.open_image_button)
+        button_layout.addWidget(self.run_anomaly_button)
         button_layout.addWidget(self.prev_button)
         button_layout.addWidget(self.next_button)
         right_panel.addLayout(button_layout)
@@ -115,11 +117,13 @@ class MainWindow(QtWidgets.QMainWindow):
         self.capture_button.clicked.connect(self.trigger_manual.emit)
         self.load_model_button.clicked.connect(self._select_model)
         self.open_image_button.clicked.connect(self._open_image)
+        self.run_anomaly_button.clicked.connect(self._run_anomaly_on_manual)
         self.prev_button.clicked.connect(self._previous_image)
         self.next_button.clicked.connect(self._next_image)
         select_output_action.triggered.connect(self._select_output_dir)
         self.save_images_action.toggled.connect(self._toggle_save_images)
         self.enable_yolo_action.toggled.connect(self._toggle_yolo)
+        self.run_anomaly_button.setEnabled(False)
 
     def _init_workers(self) -> None:
         self.inspection_thread = QtCore.QThread(self)
@@ -252,6 +256,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self._manual_images = images
             self._manual_index = 0
             self._show_manual_image()
+            self.run_anomaly_button.setEnabled(True)
 
     def _show_manual_image(self) -> None:
         if not getattr(self, "_manual_images", None):
@@ -269,6 +274,18 @@ class MainWindow(QtWidgets.QMainWindow):
         if getattr(self, "_manual_images", None):
             self._manual_index = (self._manual_index - 1) % len(self._manual_images)
             self._show_manual_image()
+
+    def _run_anomaly_on_manual(self) -> None:
+        if not getattr(self, "_manual_images", None):
+            QtWidgets.QMessageBox.information(self, "Run anomaly", "Please open an image first.")
+            return
+        image = self._manual_images[self._manual_index]
+        QtCore.QMetaObject.invokeMethod(
+            self.worker,
+            "run_on_image",
+            QtCore.Qt.QueuedConnection,
+            QtCore.Q_ARG(object, image),
+        )
 
     def closeEvent(self, event: QtGui.QCloseEvent) -> None:  # pragma: no cover - UI cleanup
         try:

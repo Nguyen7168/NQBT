@@ -195,6 +195,57 @@ class InspectionWorker(QtCore.QObject):
                 self._anomaly_error = str(exc)
                 LOGGER.error("Failed to reload anomaly model: %s", exc)
 
+    @QtCore.pyqtSlot(object)
+    def run_on_image(self, image_obj: object) -> None:
+        """Run anomaly (and optional YOLO) on a provided image.
+
+        This does not interact with the PLC or camera; it reuses the
+        cropping + inference pipeline and emits cycle_completed/failed
+        for the UI to update as usual.
+        """
+        with self._lock:
+            try:
+                assert isinstance(image_obj, np.ndarray), "Expected numpy image"
+                image = image_obj
+                self.cycle_started.emit()
+
+                patches = self.cropper.crop(image)
+                if self.anomaly is None:
+                    raise RuntimeError(
+                        f"Anomaly model not available: {self._anomaly_error or 'unknown error'}"
+                    )
+                anomaly = self.anomaly.infer([p.image for p in patches])
+                threshold = self.config.models.anomaly.threshold
+                statuses = ["OK" if score <= threshold else "NG" for score in anomaly.scores]
+                ng_total = sum(1 for status in statuses if status == "NG")
+
+                yolo_result = None
+                if self.yolo is not None:
+                    try:
+                        yolo_result = self.yolo.detect(image)
+                    except Exception as exc:
+                        LOGGER.error("YOLO inference failed: %s", exc)
+
+                overlay = self._build_overlay(image, patches, statuses, yolo_result)
+                result = InspectionResult(
+                    raw_image=image,
+                    overlay_image=overlay,
+                    patches=patches,
+                    anomaly_scores=anomaly.scores,
+                    statuses=statuses,
+                    ng_total=ng_total,
+                    anomaly_inference_ms=anomaly.inference_ms,
+                    yolo_result=yolo_result,
+                    timestamp=time.time(),
+                    model_path=self.config.models.anomaly.path,
+                    threshold=threshold,
+                )
+
+                self.cycle_completed.emit(result)
+            except Exception as exc:
+                LOGGER.exception("Manual image inference failed: %s", exc)
+                self.cycle_failed.emit(str(exc))
+
     def _build_overlay(
         self,
         image: np.ndarray,
