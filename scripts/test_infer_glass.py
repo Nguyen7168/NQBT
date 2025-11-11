@@ -1,4 +1,4 @@
-"""Standalone test: GLASS anomaly inference on single-part images (no crop).
+r"""Standalone test: GLASS anomaly inference on single-part images (no crop).
 
 Usage:
   python scripts/test_infer_glass.py --config config.yaml --images path1 path2 ...

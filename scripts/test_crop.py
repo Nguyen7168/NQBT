@@ -1,4 +1,4 @@
-"""Standalone test: crop bearings via CircleCropper and save overlays/patches.
+r"""Standalone test: crop bearings via CircleCropper and save overlays/patches.
 
 Usage:
   python scripts/test_crop.py --config config.yaml --images path1 path2 ...
@@ -31,7 +31,7 @@ def draw_bboxes(image: np.ndarray, bboxes: list[tuple[int, int, int, int]]) -> n
 def main() -> int:
     parser = argparse.ArgumentParser(description="Test circle-based cropping")
     parser.add_argument("--config", default="config.yaml", help="Path to configuration file")
-    parser.add_argument("--images", nargs="+", default=r"D:\AI\NQBT\app\models\20250510081249.jpg", help="Paths to input images")
+    parser.add_argument("--images", nargs="+", help="Paths to input images")
     parser.add_argument("--out", default=None, help="Optional override output directory")
     args = parser.parse_args()
 
