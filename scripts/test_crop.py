@@ -2,6 +2,7 @@ r"""Standalone test: crop bearings via CircleCropper and save overlays/patches.
 
 Usage:
   python scripts/test_crop.py --config config.yaml --images path1 path2 ...
+  python scripts/test_crop.py --config config.yaml --images "D:\AI\NQBT\app\models\20250510081249.jpg"
 """
 from __future__ import annotations
 

@@ -31,7 +31,7 @@ models:
     inp_max_ratio: 0.0
     inp_bin_thresh: 0.2
   glass:
-    path: r"D:\AI\NQBT\app\models\epoch_167_loss_0.8421_106img_simplified.onnx"
+    path: D:/AI/NQBT/app/models/glass.onnx
     provider: "cuda"
     input_size: 288
     glass_threshold: 0.5
