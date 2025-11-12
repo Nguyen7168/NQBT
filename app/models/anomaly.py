@@ -151,7 +151,9 @@ class _GlassOnnxDetector(_BaseDetector):
     def __init__(self, config: GlassModelConfig):
         super().__init__(config)
         self._size = int(config.input_size)
-        self._batch = max(1, int(config.glass_batch))
+        # For parity and speed, effective batch is 1; repeating inputs adds no benefit
+        # and slows inference significantly when processing many patches.
+        self._batch = 1
         self._blur_k = int(config.glass_blur_kernel)
         # kernel must be odd
         if self._blur_k % 2 == 0:
@@ -163,21 +165,22 @@ class _GlassOnnxDetector(_BaseDetector):
         start = perf_counter()
         scores: List[float] = []
         maps: List[np.ndarray] = []
-        for patch in patches:
-            inp = self._preprocess(patch)  # (1,3,H,W)
-            inp = np.repeat(inp, self._batch, axis=0)  # (B,3,H,W)
-            outputs = self._session.run(None, {self._input_name: inp})
-            amap = np.asarray(outputs[0])  # expect (B,H,W)
-            if amap.ndim == 4:  # some models might return (B,1,H,W)
-                amap = amap[:, 0]
-            amap0 = amap[0]
-            amap0 = cv2.resize(amap0, (self._size, self._size), interpolation=cv2.INTER_LINEAR)
-            amap0 = cv2.GaussianBlur(amap0, (self._blur_k, self._blur_k), self._blur_sigma)
-            # Score BEFORE normalization (match provided GLASS script)
-            score = float(np.max(amap0))
-            # min-max norm for map saving/visualization
-            a_min, a_max = float(np.min(amap0)), float(np.max(amap0))
-            norm = (amap0 - a_min) / (a_max - a_min + self._norm_eps)
+        # Preprocess and batch all patches for a single ONNX run
+        if len(patches) == 0:
+            return AnomalyResult(scores=[], inference_ms=0.0, maps=[])
+        batch_list = [self._preprocess(patch) for patch in patches]  # each (1,3,H,W)
+        batch = np.concatenate(batch_list, axis=0)  # (N,3,H,W)
+        outputs = self._session.run(None, {self._input_name: batch})
+        amap = np.asarray(outputs[0])  # (N,H,W) or (N,1,H,W)
+        if amap.ndim == 4:
+            amap = amap[:, 0]
+        for i in range(amap.shape[0]):
+            amap_i = amap[i]
+            amap_i = cv2.resize(amap_i, (self._size, self._size), interpolation=cv2.INTER_LINEAR)
+            amap_i = cv2.GaussianBlur(amap_i, (self._blur_k, self._blur_k), self._blur_sigma)
+            score = float(np.max(amap_i))
+            a_min, a_max = float(np.min(amap_i)), float(np.max(amap_i))
+            norm = (amap_i - a_min) / (a_max - a_min + self._norm_eps)
             scores.append(score)
             maps.append(norm.astype(np.float32))
         elapsed = (perf_counter() - start) * 1000.0
