@@ -2,7 +2,7 @@ r"""Standalone test: GLASS anomaly inference on single-part images (no crop).
 
 Usage:
   python scripts/test_infer_glass.py --config config.yaml --images path1 path2 ...
-  python scripts/test_infer_glass.py --config config.yaml --images "D:\AI\NQBT\runs\latest\test_crop_20251111_151825\20250510081249\patches\ngoaile.jpg"
+  python scripts/test_infer_glass.py --config config.yaml --images "D:\AI\NQBT\runs\latest\test_crop_20251111_151825\20250510081249\patches\patch_03.jpg"
 Each image is assumed to be a single cropped bearing part.
 Saves score, heatmap, and binary mask per image.
 """

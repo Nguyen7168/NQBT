@@ -173,10 +173,11 @@ class _GlassOnnxDetector(_BaseDetector):
             amap0 = amap[0]
             amap0 = cv2.resize(amap0, (self._size, self._size), interpolation=cv2.INTER_LINEAR)
             amap0 = cv2.GaussianBlur(amap0, (self._blur_k, self._blur_k), self._blur_sigma)
-            # min-max norm
+            # Score BEFORE normalization (match provided GLASS script)
+            score = float(np.max(amap0))
+            # min-max norm for map saving/visualization
             a_min, a_max = float(np.min(amap0)), float(np.max(amap0))
             norm = (amap0 - a_min) / (a_max - a_min + self._norm_eps)
-            score = float(np.max(norm))
             scores.append(score)
             maps.append(norm.astype(np.float32))
         elapsed = (perf_counter() - start) * 1000.0
@@ -190,7 +191,8 @@ class _GlassOnnxDetector(_BaseDetector):
         elif img.shape[2] == 1:
             img = np.repeat(img, 3, axis=2)
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        img = cv2.resize(img, (self._size, self._size), interpolation=cv2.INTER_AREA)
+        # Match script behavior: nearest-neighbor resize for input preproc
+        img = cv2.resize(img, (self._size, self._size), interpolation=cv2.INTER_NEAREST)
         img = img.astype(np.float32) / 255.0
         mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)
         std = np.array([0.229, 0.224, 0.225], dtype=np.float32)
