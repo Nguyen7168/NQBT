@@ -151,9 +151,13 @@ class _GlassOnnxDetector(_BaseDetector):
     def __init__(self, config: GlassModelConfig):
         super().__init__(config)
         self._size = int(config.input_size)
-        # For parity and speed, effective batch is 1; repeating inputs adds no benefit
-        # and slows inference significantly when processing many patches.
-        self._batch = 1
+        # Detect required static batch dimension (e.g., 8) if model is fixed-batch
+        try:
+            ishape = self._session.get_inputs()[0].shape  # e.g. [8,3,H,W] or [None,3,H,W]
+            bdim = ishape[0] if ishape and len(ishape) >= 4 else None
+            self._req_batch = int(bdim) if isinstance(bdim, int) else None
+        except Exception:
+            self._req_batch = None
         self._blur_k = int(config.glass_blur_kernel)
         # kernel must be odd
         if self._blur_k % 2 == 0:
@@ -165,24 +169,51 @@ class _GlassOnnxDetector(_BaseDetector):
         start = perf_counter()
         scores: List[float] = []
         maps: List[np.ndarray] = []
-        # Preprocess and batch all patches for a single ONNX run
         if len(patches) == 0:
             return AnomalyResult(scores=[], inference_ms=0.0, maps=[])
-        batch_list = [self._preprocess(patch) for patch in patches]  # each (1,3,H,W)
-        batch = np.concatenate(batch_list, axis=0)  # (N,3,H,W)
-        outputs = self._session.run(None, {self._input_name: batch})
-        amap = np.asarray(outputs[0])  # (N,H,W) or (N,1,H,W)
-        if amap.ndim == 4:
-            amap = amap[:, 0]
-        for i in range(amap.shape[0]):
-            amap_i = amap[i]
-            amap_i = cv2.resize(amap_i, (self._size, self._size), interpolation=cv2.INTER_LINEAR)
-            amap_i = cv2.GaussianBlur(amap_i, (self._blur_k, self._blur_k), self._blur_sigma)
-            score = float(np.max(amap_i))
-            a_min, a_max = float(np.min(amap_i)), float(np.max(amap_i))
-            norm = (amap_i - a_min) / (a_max - a_min + self._norm_eps)
-            scores.append(score)
-            maps.append(norm.astype(np.float32))
+        pre = [self._preprocess(p) for p in patches]
+        # If model requires a fixed batch (e.g., 8), run in chunks of that size and pad the last chunk
+        if self._req_batch and self._req_batch > 1:
+            B = self._req_batch
+            idx = 0
+            while idx < len(pre):
+                chunk = pre[idx: idx + B]
+                # pad last chunk by repeating last element
+                if len(chunk) < B:
+                    pad = [chunk[-1]] * (B - len(chunk))
+                    chunk = chunk + pad
+                batch = np.concatenate(chunk, axis=0)
+                outputs = self._session.run(None, {self._input_name: batch})
+                amap = np.asarray(outputs[0])
+                if amap.ndim == 4:
+                    amap = amap[:, 0]
+                valid = min(B, len(pre) - idx)
+                for i in range(valid):
+                    amap_i = amap[i]
+                    amap_i = cv2.resize(amap_i, (self._size, self._size), interpolation=cv2.INTER_LINEAR)
+                    amap_i = cv2.GaussianBlur(amap_i, (self._blur_k, self._blur_k), self._blur_sigma)
+                    score = float(np.max(amap_i))
+                    a_min, a_max = float(np.min(amap_i)), float(np.max(amap_i))
+                    norm = (amap_i - a_min) / (a_max - a_min + self._norm_eps)
+                    scores.append(score)
+                    maps.append(norm.astype(np.float32))
+                idx += B
+        else:
+            # Dynamic or batch-1 model: run all at once
+            batch = np.concatenate(pre, axis=0)
+            outputs = self._session.run(None, {self._input_name: batch})
+            amap = np.asarray(outputs[0])
+            if amap.ndim == 4:
+                amap = amap[:, 0]
+            for i in range(amap.shape[0]):
+                amap_i = amap[i]
+                amap_i = cv2.resize(amap_i, (self._size, self._size), interpolation=cv2.INTER_LINEAR)
+                amap_i = cv2.GaussianBlur(amap_i, (self._blur_k, self._blur_k), self._blur_sigma)
+                score = float(np.max(amap_i))
+                a_min, a_max = float(np.min(amap_i)), float(np.max(amap_i))
+                norm = (amap_i - a_min) / (a_max - a_min + self._norm_eps)
+                scores.append(score)
+                maps.append(norm.astype(np.float32))
         elapsed = (perf_counter() - start) * 1000.0
         LOGGER.debug("Anomaly (GLASS) inference finished in %.2f ms", elapsed)
         return AnomalyResult(scores=scores, inference_ms=elapsed, maps=maps)
