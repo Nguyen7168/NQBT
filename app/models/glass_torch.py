@@ -33,7 +33,7 @@ class Discriminator(nn.Module):
     def __init__(self, in_planes: int, n_layers: int = 2, hidden: int | None = None):
         super().__init__()
         _hidden = in_planes if hidden is None else hidden
-        self.body = nn.Sequential()
+        layers = nn.Sequential()
         for i in range(n_layers - 1):
             _in = in_planes if i == 0 else _hidden
             _hidden = int(_hidden // 1.5) if hidden is None else hidden
@@ -42,7 +42,8 @@ class Discriminator(nn.Module):
                 nn.BatchNorm1d(_hidden),
                 nn.LeakyReLU(0.2),
             )
-            self.body.add_module(f"block{i + 1}", block)
+            layers.add_module(f"block{i + 1}", block)
+        self.body = layers
         self.tail = nn.Sequential(nn.Linear(_hidden, 1, bias=False), nn.Sigmoid())
         self.apply(_init_weight)
 
@@ -57,13 +58,13 @@ class Projection(nn.Module):
         super().__init__()
         if out_planes is None:
             out_planes = in_planes
-        layers: list[nn.Module] = []
+        layers = nn.Sequential()
         for i in range(n_layers):
             in_dim = in_planes if i == 0 else out_planes
-            layers.append(nn.Linear(in_dim, out_planes))
+            layers.add_module(f"{i}fc", nn.Linear(in_dim, out_planes))
             if i < n_layers - 1 and layer_type > 1:
-                layers.append(nn.LeakyReLU(0.2))
-        self.layers = nn.Sequential(*layers)
+                layers.add_module(f"{i}relu", nn.LeakyReLU(0.2))
+        self.layers = layers
         self.apply(_init_weight)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:  # type: ignore[override]
