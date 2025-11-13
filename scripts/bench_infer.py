@@ -3,6 +3,7 @@ r"""Benchmark anomaly pipeline (crop -> infer) with detailed timings.
 Usage examples:
   python scripts/bench_infer.py --config config.yaml --images "D:\AI\NQBT\app\models\20250510081249.jpg" --algo GLASS
   python scripts/bench_infer.py --config config.yaml --images patch1.png --single-patch --algo GLASS
+  python scripts/bench_infer.py --config config.yaml --images app\models\20250510081249.jpg --algo GLASS
 
 Outputs per image include timings for load, crop, infer (wall/model), overlay, total.
 Optional `--out` to save raw/overlay per image for inspection.
@@ -25,6 +26,10 @@ if str(ROOT) not in sys.path:
 from app.config_loader import load_config
 from app.inspection.cropping import CircleCropper, CropResult
 from app.models.anomaly import AnomalyDetector
+try:
+    import onnxruntime as ort
+except Exception:
+    ort = None
 from app.utils import ensure_dir, save_image
 
 
@@ -113,7 +118,16 @@ def main() -> int:
         threshold = float(cfg.models.inp.inp_threshold)
         model_path = cfg.models.inp.path
 
-    print(f"Algo={cfg.models.algo} | Model={model_path} | Threshold={threshold}")
+    provider_info = "unknown"
+    if ort is not None:
+        try:
+            providers = ort.get_available_providers()
+            provider_info = ",".join(providers)
+        except Exception:
+            provider_info = "n/a"
+    print(
+        f"Algo={cfg.models.algo} | Model={model_path} | Threshold={threshold} | AvailableProviders={provider_info}"
+    )
     summary: list[dict[str, float | int | str]] = []
     out_root = Path(args.out) if args.out else None
     if out_root:
@@ -137,4 +151,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
