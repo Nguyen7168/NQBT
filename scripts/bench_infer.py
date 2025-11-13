@@ -119,14 +119,23 @@ def main() -> int:
         model_path = cfg.models.inp.path
 
     provider_info = "unknown"
+    session_providers = "unknown"
     if ort is not None:
         try:
             providers = ort.get_available_providers()
             provider_info = ",".join(providers)
         except Exception:
             provider_info = "n/a"
+    try:
+        session = detector._impl._session  # type: ignore[attr-defined]
+        session_providers = ",".join(session.get_providers())
+    except Exception:
+        if hasattr(detector._impl, "_device"):
+            session_providers = f"torch:{detector._impl._device}"  # type: ignore[attr-defined]
+        else:
+            session_providers = "n/a"
     print(
-        f"Algo={cfg.models.algo} | Model={model_path} | Threshold={threshold} | AvailableProviders={provider_info}"
+        f"Algo={cfg.models.algo} | Model={model_path} | Threshold={threshold} | AvailableProviders={provider_info} | SessionProviders={session_providers}"
     )
     summary: list[dict[str, float | int | str]] = []
     out_root = Path(args.out) if args.out else None
