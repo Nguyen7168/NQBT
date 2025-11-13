@@ -33,18 +33,16 @@ class Discriminator(nn.Module):
     def __init__(self, in_planes: int, n_layers: int = 2, hidden: int | None = None):
         super().__init__()
         _hidden = in_planes if hidden is None else hidden
-        body: list[nn.Module] = []
+        self.body = nn.Sequential()
         for i in range(n_layers - 1):
             _in = in_planes if i == 0 else _hidden
             _hidden = int(_hidden // 1.5) if hidden is None else hidden
-            body.append(
-                nn.Sequential(
-                    nn.Linear(_in, _hidden),
-                    nn.BatchNorm1d(_hidden),
-                    nn.LeakyReLU(0.2),
-                )
+            block = nn.Sequential(
+                nn.Linear(_in, _hidden),
+                nn.BatchNorm1d(_hidden),
+                nn.LeakyReLU(0.2),
             )
-        self.body = nn.Sequential(*body)
+            self.body.add_module(f"block{i + 1}", block)
         self.tail = nn.Sequential(nn.Linear(_hidden, 1, bias=False), nn.Sigmoid())
         self.apply(_init_weight)
 
