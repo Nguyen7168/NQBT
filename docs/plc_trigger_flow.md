@@ -75,3 +75,57 @@ UI chuyển sang worker
 Worker chạy AI + camera → ghi kết quả về PLC
 Worker chờ PLC ack để kết thúc sạch sẽ
 Tắt busy/done/error → sẵn sàng chu kỳ tiếp theo
+
+
+# Chu kỳ kiểm tra PLC – App
+
+## 1️⃣ Rung 1 – Gửi Trigger
+Khi PLC muốn yêu cầu 1 chu kỳ kiểm tra:
+|----[ X0 : Nút/Điều kiện Trigger ]---------------------( TRIG )----|
+**TRIG** giữ mức **ON** cho đến khi App đọc và xử lý xong.
+
+---
+
+## 2️⃣ Rung 2 – Chờ App nhận Trigger và bật Busy
+App khi bắt đầu `run_cycle` sẽ bật `BUSY = 1`.  
+PLC chỉ chờ, không tác động.
+|----[ TRIG ]--------------------------------------------(  )--------|
+(App sẽ bật Y0 = BUSY)
+---
+
+## 3️⃣ Rung 3 – Chờ Done để bật ACK
+App khi hoàn thành xử lý → bật `DONE = 1`.  
+PLC sau đó bật `ACK = 1` để báo “đã nhận kết quả”.
+|----[ DONE ]-------------------------------------------( M100 )----|
+|                                           |
+Y1 = DONE                               M100 = ACK
+
+---
+
+## 4️⃣ Rung 4 – Reset Trigger sau khi ACK
+PLC chỉ tắt `TRIG` khi đã `ACK` để chuẩn bị chu kỳ kế tiếp.
+|----[ M100 ]-------------------------------------------[RST TRIG]---|
+---
+
+## 5️⃣ Rung 5 – Chờ App reset Busy/Done/Error
+App gọi `finalize_cycle()` và reset:
+- BUSY = 0
+- DONE = 0
+- ERROR = 0
+
+Khi App đã reset xong (tức là `Y0 = BUSY OFF` & `Y1 = DONE OFF`),  
+PLC sẽ tự reset `ACK`.
+|----[ /BUSY ]---[ /DONE ]-----------------------------[RST M100]----|
+**/BUSY = BUSY OFF**  
+**/DONE = DONE OFF**  
+→ Nếu cả hai bit đều OFF, PLC reset ACK → kết thúc cycle.
+
+---
+
+## 6️⃣ Rung 6 – Xử lý kết quả OK/NG
+App đặt OK hoặc NG:
+
+**OK result:**
+|----[ Y10 ]----------------------------------------------------------|
+
+**NG result:**
