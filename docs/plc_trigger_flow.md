@@ -81,7 +81,7 @@ Tắt busy/done/error → sẵn sàng chu kỳ tiếp theo
 
 ## 1️⃣ Rung 1 – Gửi Trigger
 Khi PLC muốn yêu cầu 1 chu kỳ kiểm tra:
-|----[ X0 : Nút/Điều kiện Trigger ]---------------------( TRIG )----|
+- **|----[ X0 : Nút/Điều kiện Trigger ]---------------------( TRIG )----|
 **TRIG** giữ mức **ON** cho đến khi App đọc và xử lý xong.
 
 ---
@@ -89,14 +89,14 @@ Khi PLC muốn yêu cầu 1 chu kỳ kiểm tra:
 ## 2️⃣ Rung 2 – Chờ App nhận Trigger và bật Busy
 App khi bắt đầu `run_cycle` sẽ bật `BUSY = 1`.  
 PLC chỉ chờ, không tác động.
-|----[ TRIG ]--------------------------------------------(  )--------|
+- **|----[ TRIG ]--------------------------------------------(  )--------|
 (App sẽ bật Y0 = BUSY)
 ---
 
 ## 3️⃣ Rung 3 – Chờ Done để bật ACK
 App khi hoàn thành xử lý → bật `DONE = 1`.  
 PLC sau đó bật `ACK = 1` để báo “đã nhận kết quả”.
-|----[ DONE ]-------------------------------------------( M100 )----|
+- **|----[ DONE ]-------------------------------------------( M100 )----|
 |                                           |
 Y1 = DONE                               M100 = ACK
 
