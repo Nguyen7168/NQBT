@@ -119,3 +119,4 @@ PLC sẽ tự reset `ACK`.
 **/BUSY = BUSY OFF**  
 **/DONE = DONE OFF**  
 → Nếu cả hai bit đều OFF, PLC reset ACK → kết thúc cycle.
+## 6️⃣ Rung 6 – Xử lý kết quả OK/NG → Output kết quả OK NG cho PLC
