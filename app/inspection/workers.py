@@ -16,7 +16,7 @@ from PyQt5 import QtCore
 
 from app.config_loader import AppConfig
 from app.inspection.camera import BaslerCamera, DummyCamera
-from app.inspection.cropping import CropResult, CircleCropper
+from app.inspection.cropping import CropResult, CircleCropper, CircleDetectionError
 from app.inspection.plc_client import PlcController
 from app.models.anomaly import AnomalyDetector
 from app.models.yolo import YoloDetector, YoloResult
@@ -39,6 +39,8 @@ class InspectionResult:
     model_path: str
     threshold: float
     anomaly_maps: Optional[List[np.ndarray]] = None  # Optional per-patch normalized maps
+    detected_circles: Optional[int] = None
+    expected_circles: Optional[int] = None
 
     def to_json(self) -> Dict[str, object]:
         ts = datetime.fromtimestamp(self.timestamp, tz=timezone.utc).isoformat()
@@ -129,7 +131,33 @@ class InspectionWorker(QtCore.QObject):
                     self._camera_ready = True
                 capture = self.camera.capture()
                 LOGGER.debug("Captured image with shape %s", capture.image.shape)
-                patches = self.cropper.crop(capture.image)
+                try:
+                    patches = self.cropper.crop(capture.image)
+                except CircleDetectionError as exc:
+                    LOGGER.warning("Circle detection mismatch: %s", exc)
+                    expected = exc.expected
+                    self.plc.write_results([False] * expected)
+                    self.plc.set_error(True)
+                    self.plc.set_done(True)
+                    overlay = capture.image.copy()
+                    result = InspectionResult(
+                        raw_image=capture.image,
+                        overlay_image=overlay,
+                        patches=[],
+                        anomaly_scores=[],
+                        statuses=[],
+                        ng_total=expected,
+                        anomaly_inference_ms=0.0,
+                        yolo_result=None,
+                        timestamp=time.time(),
+                        model_path=self.config.models.inp.path,
+                        threshold=0.0,
+                        anomaly_maps=None,
+                        detected_circles=exc.detected,
+                        expected_circles=expected,
+                    )
+                    self.cycle_completed.emit(result)
+                    return
                 if self.anomaly is None:
                     raise RuntimeError(
                         f"Anomaly model not available: {self._anomaly_error or 'unknown error'}"
@@ -166,6 +194,8 @@ class InspectionWorker(QtCore.QObject):
                     model_path=model_path,
                     threshold=threshold,
                     anomaly_maps=anomaly.maps,
+                    detected_circles=self.config.layout.count,
+                    expected_circles=self.config.layout.count,
                 )
 
                 self.plc.write_results([status == "OK" for status in statuses])
@@ -223,7 +253,29 @@ class InspectionWorker(QtCore.QObject):
                 image = image_obj
                 self.cycle_started.emit()
 
-                patches = self.cropper.crop(image)
+                try:
+                    patches = self.cropper.crop(image)
+                except CircleDetectionError as exc:
+                    LOGGER.warning("Circle detection mismatch on manual image: %s", exc)
+                    overlay = image.copy()
+                    result = InspectionResult(
+                        raw_image=image,
+                        overlay_image=overlay,
+                        patches=[],
+                        anomaly_scores=[],
+                        statuses=[],
+                        ng_total=exc.expected,
+                        anomaly_inference_ms=0.0,
+                        yolo_result=None,
+                        timestamp=time.time(),
+                        model_path=self.config.models.inp.path,
+                        threshold=0.0,
+                        anomaly_maps=None,
+                        detected_circles=exc.detected,
+                        expected_circles=exc.expected,
+                    )
+                    self.cycle_completed.emit(result)
+                    return
                 if self.anomaly is None:
                     raise RuntimeError(
                         f"Anomaly model not available: {self._anomaly_error or 'unknown error'}"
@@ -260,6 +312,8 @@ class InspectionWorker(QtCore.QObject):
                     model_path=model_path,
                     threshold=threshold,
                     anomaly_maps=anomaly.maps,
+                    detected_circles=self.config.layout.count,
+                    expected_circles=self.config.layout.count,
                 )
 
                 self.cycle_completed.emit(result)
