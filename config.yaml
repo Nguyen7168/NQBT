@@ -31,7 +31,7 @@ models:
     inp_max_ratio: 0.0
     inp_bin_thresh: 0.2
   glass:
-    path: app/models/glass.onnx
+    path: app/models/gls_epoch_124_loss_0_1330_271img.pth
     provider: "cuda"
     input_size: 288
     glass_threshold: 0.5
