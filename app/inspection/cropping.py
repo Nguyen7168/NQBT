@@ -74,7 +74,11 @@ class CircleCropper:
         order = np.lexsort((arr[:, 0], arr[:, 1]))
         return arr[order]
 
-    def crop(self, image: np.ndarray) -> List[CropResult]:
+    def crop_with_count(self, image: np.ndarray) -> tuple[List[CropResult], int]:
+        """Return cropped patches and the number of detected circles.
+
+        Unlike `crop`, this method does not enforce the expected circle count.
+        """
         if image.ndim not in (2, 3):
             raise ValueError("Unsupported image format")
 
@@ -83,17 +87,11 @@ class CircleCropper:
         bin_img = self._preprocess(image)
         circles = self._detect_circles(bin_img)
         if circles is None or len(circles[0]) == 0:
-            raise CircleDetectionError("No circles detected for cropping", detected=0, expected=expected)
+            return [], 0
 
         circles = np.uint16(np.around(circles))
         arr = self._sort_row_major(circles[0], self.layout.rows, self.layout.cols)
-
-        if len(arr) != expected:
-            raise CircleDetectionError(
-                f"Detected {len(arr)} circles, expected {expected}",
-                detected=len(arr),
-                expected=expected,
-            )
+        detected = len(arr)
 
         patches: List[CropResult] = []
         radius_expand = int(self.layout.circle_radius_expand)
@@ -119,6 +117,22 @@ class CircleCropper:
 
             patches.append(CropResult(index=idx, image=cropped_roi, bbox=(x1, y1, x2, y2)))
 
+        return patches, detected
+
+    def crop(self, image: np.ndarray) -> List[CropResult]:
+        if image.ndim not in (2, 3):
+            raise ValueError("Unsupported image format")
+
+        expected = self.layout.count
+        patches, detected = self.crop_with_count(image)
+        if detected == 0:
+            raise CircleDetectionError("No circles detected for cropping", detected=0, expected=expected)
+        if detected != expected:
+            raise CircleDetectionError(
+                f"Detected {detected} circles, expected {expected}",
+                detected=detected,
+                expected=expected,
+            )
         return patches
 
 
