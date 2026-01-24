@@ -83,6 +83,7 @@ class CircleCropper:
             raise ValueError("Unsupported image format")
 
         h, w = image.shape[:2]
+        expected = self.layout.count
         bin_img = self._preprocess(image)
         circles = self._detect_circles(bin_img)
         if circles is None or len(circles[0]) == 0:
