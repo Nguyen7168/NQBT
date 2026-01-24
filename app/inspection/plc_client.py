@@ -224,7 +224,10 @@ class AsciiTcpClient(BasePLCClient):
             raise PLCError("PLC not connected")
         data = (cmd + "\r").encode("utf-8")
         self._sock.sendall(data)
-        resp = self._sock.recv(1024)
+        try:
+            resp = self._sock.recv(1024)
+        except socket.timeout as exc:
+            raise PLCError(f"Timeout waiting for PLC response to {cmd}") from exc
         try:
             return resp.decode("utf-8").strip()
         except Exception as exc:
@@ -315,13 +318,19 @@ class PlcController:
     def finalize_cycle(self) -> None:
         # Wait for PLC acknowledgement before clearing flags
         start = time.time()
-        while not self.client.read_bit(self.config.addr.ack):
-            if (time.time() - start) * 1000 > self.config.timeouts.cycle_ms:
-                LOGGER.warning("Timeout waiting for PLC ACK signal")
-                break
-            time.sleep(0.05)
+        try:
+            while not self.client.read_bit(self.config.addr.ack):
+                if (time.time() - start) * 1000 > self.config.timeouts.cycle_ms:
+                    LOGGER.warning("Timeout waiting for PLC ACK signal")
+                    break
+                time.sleep(0.05)
+        except PLCError as exc:
+            LOGGER.warning("PLC ACK wait failed: %s", exc)
         self.set_done(False)
         self.set_busy(False)
         if self.state.error:
             self.set_error(False)
-        self.wait_for_ack_clear()
+        try:
+            self.wait_for_ack_clear()
+        except PLCError as exc:
+            LOGGER.warning("PLC ACK clear wait failed: %s", exc)
