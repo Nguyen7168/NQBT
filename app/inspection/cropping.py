@@ -17,6 +17,15 @@ class CropResult:
     bbox: tuple[int, int, int, int]
 
 
+class CircleDetectionError(ValueError):
+    """Raised when circle detection does not match the expected layout."""
+
+    def __init__(self, message: str, detected: int, expected: int) -> None:
+        super().__init__(message)
+        self.detected = detected
+        self.expected = expected
+
+
 class CircleCropper:
     """Cropper that detects circular parts via HoughCircles and crops around them.
 
@@ -70,17 +79,21 @@ class CircleCropper:
             raise ValueError("Unsupported image format")
 
         h, w = image.shape[:2]
+        expected = self.layout.count
         bin_img = self._preprocess(image)
         circles = self._detect_circles(bin_img)
         if circles is None or len(circles[0]) == 0:
-            raise ValueError("No circles detected for cropping")
+            raise CircleDetectionError("No circles detected for cropping", detected=0, expected=expected)
 
         circles = np.uint16(np.around(circles))
         arr = self._sort_row_major(circles[0], self.layout.rows, self.layout.cols)
 
-        expected = self.layout.count
         if len(arr) != expected:
-            raise ValueError(f"Detected {len(arr)} circles, expected {expected}")
+            raise CircleDetectionError(
+                f"Detected {len(arr)} circles, expected {expected}",
+                detected=len(arr),
+                expected=expected,
+            )
 
         patches: List[CropResult] = []
         radius_expand = int(self.layout.circle_radius_expand)
@@ -109,4 +122,4 @@ class CircleCropper:
         return patches
 
 
-__all__ = ["CircleCropper", "CropResult"]
+__all__ = ["CircleCropper", "CropResult", "CircleDetectionError"]
