@@ -2,7 +2,7 @@ camera:
   serial: null
   exposure_us: 8000
   gain: 0
-  pixel_format: "Mono8"
+  pixel_format: "BayerRG8"
 
 plc:
   protocol: "ASCII_TCP"
