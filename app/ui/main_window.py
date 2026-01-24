@@ -214,7 +214,12 @@ class MainWindow(QtWidgets.QMainWindow):
             self.result_table.setItem(row, 2, QtWidgets.QTableWidgetItem(status))
         self.ng_label.setText(str(result.ng_total))
         self.inference_label.setText(f"{result.anomaly_inference_ms:.1f} ms")
-        self.status_camera.setText("Camera: Ready")
+        if result.detected_circles is not None and result.expected_circles is not None:
+            self.status_camera.setText(
+                f"Camera: Ready (circles {result.detected_circles}/{result.expected_circles})"
+            )
+        else:
+            self.status_camera.setText("Camera: Ready")
 
         if self.save_images_action.isChecked():
             QtCore.QMetaObject.invokeMethod(

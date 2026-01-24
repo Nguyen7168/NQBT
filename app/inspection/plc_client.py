@@ -233,7 +233,10 @@ class AsciiTcpClient(BasePLCClient):
     def read_bit(self, address: str) -> bool:
         resp = self._send_cmd(f"RD {address}")
         try:
-            return int(resp) != 0
+            tokens = [token for token in resp.replace("\r", " ").split() if token]
+            if not tokens:
+                raise ValueError("empty response")
+            return int(tokens[0]) != 0
         except ValueError as exc:
             raise PLCError(f"Non-integer read from {address}: {resp}") from exc
 
