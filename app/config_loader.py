@@ -21,6 +21,7 @@ class PlcAddressConfig:
     busy: str
     done: str
     error: str
+    ready: str
     trigger: str
     ack: str
     result_bits_start_word: str

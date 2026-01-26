@@ -24,7 +24,9 @@ class PlcHandshakeState:
     busy: bool = False
     done: bool = False
     error: bool = False
+    ready: bool = False
     last_cycle_started: Optional[float] = None
+    last_results: Optional[List[bool]] = None
 
 
 class BasePLCClient:
@@ -224,7 +226,10 @@ class AsciiTcpClient(BasePLCClient):
             raise PLCError("PLC not connected")
         data = (cmd + "\r").encode("utf-8")
         self._sock.sendall(data)
-        resp = self._sock.recv(1024)
+        try:
+            resp = self._sock.recv(1024)
+        except socket.timeout as exc:
+            raise PLCError(f"Timeout waiting for PLC response to {cmd}") from exc
         try:
             return resp.decode("utf-8").strip()
         except Exception as exc:
@@ -233,7 +238,10 @@ class AsciiTcpClient(BasePLCClient):
     def read_bit(self, address: str) -> bool:
         resp = self._send_cmd(f"RD {address}")
         try:
-            return int(resp) != 0
+            tokens = [token for token in resp.replace("\r", " ").split() if token]
+            if not tokens:
+                raise ValueError("empty response")
+            return int(tokens[0]) != 0
         except ValueError as exc:
             raise PLCError(f"Non-integer read from {address}: {resp}") from exc
 
@@ -280,6 +288,8 @@ class PlcController:
             self.state.busy = value
             if value:
                 self.state.last_cycle_started = time.time()
+                if self.state.ready:
+                    self._set_ready_no_lock(False)
 
     def set_done(self, value: bool) -> None:
         with self._lock:
@@ -290,9 +300,20 @@ class PlcController:
         with self._lock:
             self.client.write_bit(self.config.addr.error, value)
             self.state.error = value
+            if value and self.state.ready:
+                self._set_ready_no_lock(False)
+
+    def _set_ready_no_lock(self, value: bool) -> None:
+        self.client.write_bit(self.config.addr.ready, value)
+        self.state.ready = value
+
+    def set_ready(self, value: bool) -> None:
+        with self._lock:
+            self._set_ready_no_lock(value)
 
     def write_results(self, results: Sequence[bool]) -> None:
         self.client.write_result_bits(self.config.addr.result_bits_start_word, results)
+        self.state.last_results = list(results)
 
     def wait_for_trigger(self, poll_interval: float = 0.05) -> bool:
         start = time.time()
@@ -312,13 +333,20 @@ class PlcController:
     def finalize_cycle(self) -> None:
         # Wait for PLC acknowledgement before clearing flags
         start = time.time()
-        while not self.client.read_bit(self.config.addr.ack):
-            if (time.time() - start) * 1000 > self.config.timeouts.cycle_ms:
-                LOGGER.warning("Timeout waiting for PLC ACK signal")
-                break
-            time.sleep(0.05)
+        try:
+            while not self.client.read_bit(self.config.addr.ack):
+                if (time.time() - start) * 1000 > self.config.timeouts.cycle_ms:
+                    LOGGER.warning("Timeout waiting for PLC ACK signal")
+                    break
+                time.sleep(0.05)
+        except PLCError as exc:
+            LOGGER.warning("PLC ACK wait failed: %s", exc)
         self.set_done(False)
         self.set_busy(False)
         if self.state.error:
             self.set_error(False)
-        self.wait_for_ack_clear()
+        try:
+            self.wait_for_ack_clear()
+        except PLCError as exc:
+            LOGGER.warning("PLC ACK clear wait failed: %s", exc)
+        self.set_ready(True)
