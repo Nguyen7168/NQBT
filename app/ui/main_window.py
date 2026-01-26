@@ -110,9 +110,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self.tx_busy_label = QtWidgets.QLabel("-")
         self.tx_done_label = QtWidgets.QLabel("-")
         self.tx_error_label = QtWidgets.QLabel("-")
+        self.tx_ready_label = QtWidgets.QLabel("-")
         tx_form.addRow("Busy", self.tx_busy_label)
         tx_form.addRow("Done", self.tx_done_label)
         tx_form.addRow("Error", self.tx_error_label)
+        tx_form.addRow("Ready", self.tx_ready_label)
         plc_layout.addWidget(tx_group)
 
         rx_group = QtWidgets.QGroupBox("RX (PLC → App)")
@@ -302,6 +304,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.tx_busy_label.setText("ON" if self.plc.state.busy else "OFF")
             self.tx_done_label.setText("ON" if self.plc.state.done else "OFF")
             self.tx_error_label.setText("ON" if self.plc.state.error else "OFF")
+            self.tx_ready_label.setText("ON" if self.plc.state.ready else "OFF")
             results = self.plc.state.last_results
             total = self.config.layout.count
             for row in range(total):

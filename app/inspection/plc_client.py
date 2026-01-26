@@ -24,6 +24,7 @@ class PlcHandshakeState:
     busy: bool = False
     done: bool = False
     error: bool = False
+    ready: bool = False
     last_cycle_started: Optional[float] = None
     last_results: Optional[List[bool]] = None
 
@@ -287,6 +288,8 @@ class PlcController:
             self.state.busy = value
             if value:
                 self.state.last_cycle_started = time.time()
+                if self.state.ready:
+                    self._set_ready_no_lock(False)
 
     def set_done(self, value: bool) -> None:
         with self._lock:
@@ -297,6 +300,16 @@ class PlcController:
         with self._lock:
             self.client.write_bit(self.config.addr.error, value)
             self.state.error = value
+            if value and self.state.ready:
+                self._set_ready_no_lock(False)
+
+    def _set_ready_no_lock(self, value: bool) -> None:
+        self.client.write_bit(self.config.addr.ready, value)
+        self.state.ready = value
+
+    def set_ready(self, value: bool) -> None:
+        with self._lock:
+            self._set_ready_no_lock(value)
 
     def write_results(self, results: Sequence[bool]) -> None:
         self.client.write_result_bits(self.config.addr.result_bits_start_word, results)
@@ -336,3 +349,4 @@ class PlcController:
             self.wait_for_ack_clear()
         except PLCError as exc:
             LOGGER.warning("PLC ACK clear wait failed: %s", exc)
+        self.set_ready(True)

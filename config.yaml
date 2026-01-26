@@ -12,6 +12,7 @@ plc:
     busy: "R1000"
     done: "R1001"
     error: "R1002"
+    ready: "R1003"
     trigger: "M200"
     ack: "M201"
     result_bits_start_word: "R1100"
