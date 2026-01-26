@@ -25,6 +25,7 @@ class PlcHandshakeState:
     done: bool = False
     error: bool = False
     last_cycle_started: Optional[float] = None
+    last_results: Optional[List[bool]] = None
 
 
 class BasePLCClient:
@@ -299,6 +300,7 @@ class PlcController:
 
     def write_results(self, results: Sequence[bool]) -> None:
         self.client.write_result_bits(self.config.addr.result_bits_start_word, results)
+        self.state.last_results = list(results)
 
     def wait_for_trigger(self, poll_interval: float = 0.05) -> bool:
         start = time.time()
