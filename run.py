@@ -34,6 +34,7 @@ def create_plc_controller(config: AppConfig, allow_mock: bool) -> tuple[PlcContr
         controller.set_busy(False)
         controller.set_done(False)
         controller.set_error(False)
+        controller.set_ready(True)
     except Exception as exc:
         # Do not abort startup; fall back to a mock PLC so the app can run.
         reason = str(exc)

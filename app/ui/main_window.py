@@ -10,7 +10,7 @@ import numpy as np
 from PyQt5 import QtCore, QtGui, QtWidgets
 
 from app.config_loader import AppConfig
-from app.inspection.plc_client import PlcController
+from app.inspection.plc_client import PlcController, PLCError
 from app.inspection.workers import InspectionResult, InspectionWorker, PlcTriggerWorker, SaveWorker
 from app.utils import numpy_to_qimage
 
@@ -57,13 +57,17 @@ class MainWindow(QtWidgets.QMainWindow):
         self.image_label.setStyleSheet("background-color: #1e1e1e; border: 1px solid #555;")
         content_layout.addWidget(self.image_label, stretch=2)
 
-        right_panel = QtWidgets.QVBoxLayout()
-        content_layout.addLayout(right_panel, stretch=1)
+        right_tabs = QtWidgets.QTabWidget()
+        content_layout.addWidget(right_tabs, stretch=1)
+
+        inspection_tab = QtWidgets.QWidget()
+        right_tabs.addTab(inspection_tab, "Inspection")
+        inspection_layout = QtWidgets.QVBoxLayout(inspection_tab)
 
         self.result_table = QtWidgets.QTableWidget(0, 3)
         self.result_table.setHorizontalHeaderLabels(["Index", "Score", "Status"])
         self.result_table.horizontalHeader().setSectionResizeMode(QtWidgets.QHeaderView.Stretch)
-        right_panel.addWidget(self.result_table)
+        inspection_layout.addWidget(self.result_table)
 
         info_group = QtWidgets.QGroupBox("Summary")
         form = QtWidgets.QFormLayout(info_group)
@@ -75,7 +79,7 @@ class MainWindow(QtWidgets.QMainWindow):
         form.addRow("Threshold", self.threshold_label)
         form.addRow("NG total", self.ng_label)
         form.addRow("Inference", self.inference_label)
-        right_panel.addWidget(info_group)
+        inspection_layout.addWidget(info_group)
 
         button_layout = QtWidgets.QHBoxLayout()
         self.capture_button = QtWidgets.QPushButton("Capture")
@@ -90,7 +94,48 @@ class MainWindow(QtWidgets.QMainWindow):
         button_layout.addWidget(self.run_anomaly_button)
         button_layout.addWidget(self.prev_button)
         button_layout.addWidget(self.next_button)
-        right_panel.addLayout(button_layout)
+        inspection_layout.addLayout(button_layout)
+
+        plc_tab = QtWidgets.QWidget()
+        right_tabs.addTab(plc_tab, "PLC Monitor")
+        plc_layout = QtWidgets.QVBoxLayout(plc_tab)
+
+        self.plc_monitor_toggle = QtWidgets.QCheckBox("Enable PLC Monitor")
+        self.plc_monitor_status = QtWidgets.QLabel("Monitor: Off")
+        plc_layout.addWidget(self.plc_monitor_toggle)
+        plc_layout.addWidget(self.plc_monitor_status)
+
+        tx_group = QtWidgets.QGroupBox("TX (App → PLC)")
+        tx_form = QtWidgets.QFormLayout(tx_group)
+        self.tx_busy_label = QtWidgets.QLabel("-")
+        self.tx_done_label = QtWidgets.QLabel("-")
+        self.tx_error_label = QtWidgets.QLabel("-")
+        self.tx_ready_label = QtWidgets.QLabel("-")
+        tx_form.addRow("Busy", self.tx_busy_label)
+        tx_form.addRow("Done", self.tx_done_label)
+        tx_form.addRow("Error", self.tx_error_label)
+        tx_form.addRow("Ready", self.tx_ready_label)
+        plc_layout.addWidget(tx_group)
+
+        rx_group = QtWidgets.QGroupBox("RX (PLC → App)")
+        rx_form = QtWidgets.QFormLayout(rx_group)
+        self.rx_trigger_label = QtWidgets.QLabel("-")
+        self.rx_ack_label = QtWidgets.QLabel("-")
+        rx_form.addRow("Trigger", self.rx_trigger_label)
+        rx_form.addRow("ACK", self.rx_ack_label)
+        plc_layout.addWidget(rx_group)
+
+        self.plc_results_table = QtWidgets.QTableWidget(self.config.layout.count, 2)
+        self.plc_results_table.setHorizontalHeaderLabels(["Index", "Result"])
+        self.plc_results_table.horizontalHeader().setSectionResizeMode(QtWidgets.QHeaderView.Stretch)
+        for row in range(self.config.layout.count):
+            self.plc_results_table.setItem(row, 0, QtWidgets.QTableWidgetItem(str(row + 1)))
+            self.plc_results_table.setItem(row, 1, QtWidgets.QTableWidgetItem("-"))
+        plc_layout.addWidget(self.plc_results_table)
+
+        self.plc_monitor_error = QtWidgets.QLabel("")
+        self.plc_monitor_error.setStyleSheet("color: red;")
+        plc_layout.addWidget(self.plc_monitor_error)
 
         main_layout.addStretch(1)
 
@@ -135,7 +180,12 @@ class MainWindow(QtWidgets.QMainWindow):
         self.enable_yolo_action.toggled.connect(self._toggle_yolo)
         self.save_heatmap_action.toggled.connect(self._toggle_save_heatmap)
         self.save_binary_action.toggled.connect(self._toggle_save_binary)
+        self.plc_monitor_toggle.toggled.connect(self._toggle_plc_monitor)
         self.run_anomaly_button.setEnabled(False)
+
+        self.plc_monitor_timer = QtCore.QTimer(self)
+        self.plc_monitor_timer.setInterval(200)
+        self.plc_monitor_timer.timeout.connect(self._poll_plc_monitor)
 
     def _init_workers(self) -> None:
         self.inspection_thread = QtCore.QThread(self)
@@ -214,7 +264,12 @@ class MainWindow(QtWidgets.QMainWindow):
             self.result_table.setItem(row, 2, QtWidgets.QTableWidgetItem(status))
         self.ng_label.setText(str(result.ng_total))
         self.inference_label.setText(f"{result.anomaly_inference_ms:.1f} ms")
-        self.status_camera.setText("Camera: Ready")
+        if result.detected_circles is not None and result.expected_circles is not None:
+            self.status_camera.setText(
+                f"Camera: Ready (circles {result.detected_circles}/{result.expected_circles})"
+            )
+        else:
+            self.status_camera.setText("Camera: Ready")
 
         if self.save_images_action.isChecked():
             QtCore.QMetaObject.invokeMethod(
@@ -228,6 +283,41 @@ class MainWindow(QtWidgets.QMainWindow):
     def _handle_failure(self, message: str) -> None:
         QtWidgets.QMessageBox.critical(self, "Inspection failed", message)
         self.status_camera.setText("Camera: Error")
+
+    def _toggle_plc_monitor(self, enabled: bool) -> None:
+        if enabled:
+            self.plc_monitor_status.setText("Monitor: On")
+            self.plc_monitor_error.setText("")
+            self.plc_monitor_timer.start()
+            self._poll_plc_monitor()
+        else:
+            self.plc_monitor_timer.stop()
+            self.plc_monitor_status.setText("Monitor: Off")
+            self.plc_monitor_error.setText("")
+
+    def _poll_plc_monitor(self) -> None:
+        try:
+            trigger = self.plc.client.read_bit(self.plc.config.addr.trigger)
+            ack = self.plc.client.read_bit(self.plc.config.addr.ack)
+            self.rx_trigger_label.setText("ON" if trigger else "OFF")
+            self.rx_ack_label.setText("ON" if ack else "OFF")
+            self.tx_busy_label.setText("ON" if self.plc.state.busy else "OFF")
+            self.tx_done_label.setText("ON" if self.plc.state.done else "OFF")
+            self.tx_error_label.setText("ON" if self.plc.state.error else "OFF")
+            self.tx_ready_label.setText("ON" if self.plc.state.ready else "OFF")
+            results = self.plc.state.last_results
+            total = self.config.layout.count
+            for row in range(total):
+                if results is None or row >= len(results):
+                    text = "-"
+                else:
+                    text = "OK" if results[row] else "NG"
+                self.plc_results_table.setItem(row, 1, QtWidgets.QTableWidgetItem(text))
+            self.plc_monitor_error.setText("")
+        except PLCError as exc:
+            self.plc_monitor_error.setText(str(exc))
+        except Exception as exc:  # pragma: no cover - defensive UI guard
+            self.plc_monitor_error.setText(str(exc))
 
     def _select_output_dir(self) -> None:
         directory = QtWidgets.QFileDialog.getExistingDirectory(self, "Select output folder", self.config.io.output_dir)
@@ -325,6 +415,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def closeEvent(self, event: QtGui.QCloseEvent) -> None:  # pragma: no cover - UI cleanup
         try:
+            if hasattr(self, "plc_monitor_timer"):
+                self.plc_monitor_timer.stop()
             QtCore.QMetaObject.invokeMethod(self.worker, "shutdown", QtCore.Qt.BlockingQueuedConnection)
             self.trigger_worker.stop()
             self.inspection_thread.quit()
