@@ -19,6 +19,7 @@ LOGGER = logging.getLogger(__name__)
 
 class MainWindow(QtWidgets.QMainWindow):
     trigger_manual = QtCore.pyqtSignal()
+    _table_row_height = 24
 
     def __init__(
         self,
@@ -58,6 +59,7 @@ class MainWindow(QtWidgets.QMainWindow):
         content_layout.addWidget(self.image_label, stretch=2)
 
         right_tabs = QtWidgets.QTabWidget()
+        right_tabs.setMinimumWidth(420)
         content_layout.addWidget(right_tabs, stretch=1)
 
         inspection_tab = QtWidgets.QWidget()
@@ -67,6 +69,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self.result_table = QtWidgets.QTableWidget(0, 3)
         self.result_table.setHorizontalHeaderLabels(["Index", "Score", "Status"])
         self.result_table.horizontalHeader().setSectionResizeMode(QtWidgets.QHeaderView.Stretch)
+        self.result_table.verticalHeader().setVisible(False)
+        self.result_table.verticalHeader().setSectionResizeMode(QtWidgets.QHeaderView.Fixed)
+        self.result_table.setSizeAdjustPolicy(QtWidgets.QAbstractScrollArea.AdjustIgnored)
+        self.result_table.setWordWrap(False)
+        self._set_table_row_heights(self.result_table)
         inspection_layout.addWidget(self.result_table)
 
         info_group = QtWidgets.QGroupBox("Summary")
@@ -128,9 +135,14 @@ class MainWindow(QtWidgets.QMainWindow):
         self.plc_results_table = QtWidgets.QTableWidget(self.config.layout.count, 2)
         self.plc_results_table.setHorizontalHeaderLabels(["Index", "Result"])
         self.plc_results_table.horizontalHeader().setSectionResizeMode(QtWidgets.QHeaderView.Stretch)
+        self.plc_results_table.verticalHeader().setVisible(False)
+        self.plc_results_table.verticalHeader().setSectionResizeMode(QtWidgets.QHeaderView.Fixed)
+        self.plc_results_table.setSizeAdjustPolicy(QtWidgets.QAbstractScrollArea.AdjustIgnored)
+        self.plc_results_table.setWordWrap(False)
         for row in range(self.config.layout.count):
             self.plc_results_table.setItem(row, 0, QtWidgets.QTableWidgetItem(str(row + 1)))
             self.plc_results_table.setItem(row, 1, QtWidgets.QTableWidgetItem("-"))
+        self._set_table_row_heights(self.plc_results_table)
         plc_layout.addWidget(self.plc_results_table)
 
         self.plc_monitor_error = QtWidgets.QLabel("")
@@ -165,6 +177,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.status_camera = QtWidgets.QLabel("Camera: Idle")
         self.status_plc = QtWidgets.QLabel(f"PLC: {self._plc_status}")
+        self.status_camera.setMinimumWidth(260)
+        self.status_plc.setMinimumWidth(260)
         self.statusBar().addWidget(self.status_camera)
         self.statusBar().addPermanentWidget(self.status_plc)
 
@@ -258,6 +272,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.image_label.setPixmap(pixmap.scaled(self.image_label.size(), QtCore.Qt.KeepAspectRatio, QtCore.Qt.SmoothTransformation))
 
         self.result_table.setRowCount(len(result.patches))
+        self._set_table_row_heights(self.result_table)
         for row, (patch, score, status) in enumerate(zip(result.patches, result.anomaly_scores, result.statuses)):
             self.result_table.setItem(row, 0, QtWidgets.QTableWidgetItem(str(patch.index)))
             self.result_table.setItem(row, 1, QtWidgets.QTableWidgetItem(f"{score:.3f}"))
@@ -318,6 +333,10 @@ class MainWindow(QtWidgets.QMainWindow):
             self.plc_monitor_error.setText(str(exc))
         except Exception as exc:  # pragma: no cover - defensive UI guard
             self.plc_monitor_error.setText(str(exc))
+
+    def _set_table_row_heights(self, table: QtWidgets.QTableWidget) -> None:
+        for row in range(table.rowCount()):
+            table.setRowHeight(row, self._table_row_height)
 
     def _select_output_dir(self) -> None:
         directory = QtWidgets.QFileDialog.getExistingDirectory(self, "Select output folder", self.config.io.output_dir)
