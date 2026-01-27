@@ -13,7 +13,7 @@ plc:
     done: "DM1523"
     error: "R1002"
     ready: "R1003"
-    trigger: "DM1520"
+    trigger: "R000"
     ack: "EM7002"
     result_bits_start_word: "EM7001"
   timeouts:
