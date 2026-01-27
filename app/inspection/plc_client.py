@@ -231,19 +231,31 @@ class AsciiTcpClient(BasePLCClient):
         except socket.timeout as exc:
             raise PLCError(f"Timeout waiting for PLC response to {cmd}") from exc
         try:
-            return resp.decode("utf-8").strip()
+            decoded = resp.decode("utf-8").strip()
         except Exception as exc:
             raise PLCError(f"Invalid ASCII PLC response: {resp!r}") from exc
+        if self._config.log_raw_response:
+            LOGGER.info("PLC raw response for %s: %r", cmd, decoded)
+        return decoded
 
     def read_bit(self, address: str) -> bool:
         resp = self._send_cmd(f"RD {address}")
+        tokens = [token for token in resp.replace("\r", " ").split() if token]
+        if not tokens:
+            raise PLCError(f"Empty response from {address}")
         try:
-            tokens = [token for token in resp.replace("\r", " ").split() if token]
-            if not tokens:
-                raise ValueError("empty response")
             return int(tokens[0]) != 0
-        except ValueError as exc:
-            raise PLCError(f"Non-integer read from {address}: {resp}") from exc
+        except ValueError:
+            upper = tokens[0].upper()
+            if upper == "OK" and len(tokens) > 1:
+                try:
+                    return int(tokens[1]) != 0
+                except ValueError as exc:
+                    raise PLCError(f"Non-integer read from {address}: {resp}") from exc
+            if upper == "OK":
+                LOGGER.warning("PLC returned OK without data for %s: %s", address, resp)
+                return False
+            raise PLCError(f"Non-integer read from {address}: {resp}")
 
     def write_bit(self, address: str, value: bool) -> None:
         self._send_cmd(f"WR {address} {1 if value else 0}")

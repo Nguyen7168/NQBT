@@ -16,6 +16,8 @@ plc:
     trigger: "M200"
     ack: "M201"
     result_bits_start_word: "R1100"
+  log_raw_response: false
+  trigger_poll_interval_ms: 50
   timeouts:
     connect_ms: 3000
     cycle_ms: 5000

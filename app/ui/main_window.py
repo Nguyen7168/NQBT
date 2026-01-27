@@ -212,7 +212,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.save_worker.moveToThread(self.save_thread)
         self.save_thread.start()
 
-        self.trigger_worker = PlcTriggerWorker(self.plc)
+        poll_interval = max(self.config.plc.trigger_poll_interval_ms, 1) / 1000.0
+        self.trigger_worker = PlcTriggerWorker(self.plc, poll_interval=poll_interval)
         self.trigger_worker.triggered.connect(self._handle_trigger)
         self.trigger_worker.start()
 
