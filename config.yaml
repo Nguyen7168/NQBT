@@ -16,6 +16,7 @@ plc:
     trigger: "R000"
     ack: "EM7002"
     result_bits_start_word: "EM7001"
+  log_raw_response: false
   timeouts:
     connect_ms: 3000
     cycle_ms: 5000

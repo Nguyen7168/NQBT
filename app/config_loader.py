@@ -40,6 +40,7 @@ class PlcConfig:
     port: int
     addr: PlcAddressConfig
     timeouts: PlcTimeoutConfig = field(default_factory=PlcTimeoutConfig)
+    log_raw_response: bool = False
 
 
 @dataclass
@@ -161,6 +162,7 @@ def load_config(path: str | Path) -> AppConfig:
         port=int(_require(plc_raw, "port")),
         addr=addr,
         timeouts=timeouts,
+        log_raw_response=bool(plc_raw.get("log_raw_response", False)),
     )
 
     models_raw = _require(raw, "models")
