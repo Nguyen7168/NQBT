@@ -231,9 +231,12 @@ class AsciiTcpClient(BasePLCClient):
         except socket.timeout as exc:
             raise PLCError(f"Timeout waiting for PLC response to {cmd}") from exc
         try:
-            return resp.decode("utf-8").strip()
+            decoded = resp.decode("utf-8").strip()
         except Exception as exc:
             raise PLCError(f"Invalid ASCII PLC response: {resp!r}") from exc
+        if self._config.log_raw_response:
+            LOGGER.info("PLC raw response for %s: %r", cmd, decoded)
+        return decoded
 
     def read_bit(self, address: str) -> bool:
         resp = self._send_cmd(f"RD {address}")
