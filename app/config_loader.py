@@ -41,6 +41,7 @@ class PlcConfig:
     addr: PlcAddressConfig
     timeouts: PlcTimeoutConfig = field(default_factory=PlcTimeoutConfig)
     log_raw_response: bool = False
+    trigger_poll_interval_ms: int = 50
 
 
 @dataclass
@@ -163,6 +164,7 @@ def load_config(path: str | Path) -> AppConfig:
         addr=addr,
         timeouts=timeouts,
         log_raw_response=bool(plc_raw.get("log_raw_response", False)),
+        trigger_poll_interval_ms=int(plc_raw.get("trigger_poll_interval_ms", 50)),
     )
 
     models_raw = _require(raw, "models")
