@@ -167,6 +167,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self.save_binary_action.setChecked(getattr(self.config.io, "save_binary", False))
         options_menu.addAction(self.save_binary_action)
 
+        self.save_crops_action = QtWidgets.QAction("Save crop ROI images", self)
+        self.save_crops_action.setCheckable(True)
+        self.save_crops_action.setChecked(getattr(self.config.io, "save_crops", False))
+        options_menu.addAction(self.save_crops_action)
+
         self.enable_yolo_action = QtWidgets.QAction("Enable YOLO", self)
         self.enable_yolo_action.setCheckable(True)
         self.enable_yolo_action.setChecked(self.config.models.yolo.enabled)
@@ -194,6 +199,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.enable_yolo_action.toggled.connect(self._toggle_yolo)
         self.save_heatmap_action.toggled.connect(self._toggle_save_heatmap)
         self.save_binary_action.toggled.connect(self._toggle_save_binary)
+        self.save_crops_action.toggled.connect(self._toggle_save_crops)
         self.plc_monitor_toggle.toggled.connect(self._toggle_plc_monitor)
         self.run_anomaly_button.setEnabled(False)
 
@@ -212,7 +218,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.save_worker.moveToThread(self.save_thread)
         self.save_thread.start()
 
-        self.trigger_worker = PlcTriggerWorker(self.plc)
+        poll_interval = max(self.config.plc.trigger_poll_interval_ms, 1) / 1000.0
+        self.trigger_worker = PlcTriggerWorker(self.plc, poll_interval=poll_interval)
         self.trigger_worker.triggered.connect(self._handle_trigger)
         self.trigger_worker.start()
 
@@ -354,6 +361,9 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _toggle_save_binary(self, enabled: bool) -> None:
         self.config.io.save_binary = enabled
+
+    def _toggle_save_crops(self, enabled: bool) -> None:
+        self.config.io.save_crops = enabled
 
     def _select_model(self) -> None:
         file_path, _ = QtWidgets.QFileDialog.getOpenFileName(

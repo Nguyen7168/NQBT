@@ -40,6 +40,8 @@ class PlcConfig:
     port: int
     addr: PlcAddressConfig
     timeouts: PlcTimeoutConfig = field(default_factory=PlcTimeoutConfig)
+    log_raw_response: bool = False
+    trigger_poll_interval_ms: int = 50
 
 
 @dataclass
@@ -87,9 +89,12 @@ class ModelConfig:
 class IOConfig:
     save_images: bool = True
     output_dir: str = "runs"
+    raw_dir: str = "runs/raw"
+    crops_dir: str = "runs/crops"
     filename_pattern: str = "{ts}_{model}_{idx:02d}_{cls}.png"
     save_heatmap: bool = False
     save_binary: bool = False
+    save_crops: bool = False
 
 
 @dataclass
@@ -161,6 +166,8 @@ def load_config(path: str | Path) -> AppConfig:
         port=int(_require(plc_raw, "port")),
         addr=addr,
         timeouts=timeouts,
+        log_raw_response=bool(plc_raw.get("log_raw_response", False)),
+        trigger_poll_interval_ms=int(plc_raw.get("trigger_poll_interval_ms", 50)),
     )
 
     models_raw = _require(raw, "models")
