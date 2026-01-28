@@ -89,9 +89,12 @@ class ModelConfig:
 class IOConfig:
     save_images: bool = True
     output_dir: str = "runs"
+    raw_dir: str = "runs/raw"
+    crops_dir: str = "runs/crops"
     filename_pattern: str = "{ts}_{model}_{idx:02d}_{cls}.png"
     save_heatmap: bool = False
     save_binary: bool = False
+    save_crops: bool = False
 
 
 @dataclass

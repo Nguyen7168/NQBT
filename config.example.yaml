@@ -37,7 +37,10 @@ models:
 io:
   save_images: true
   output_dir: "runs/latest"
+  raw_dir: "runs/raw"
+  crops_dir: "runs/crops"
   filename_pattern: "{ts}_{model}_{idx:02d}_{cls}.png"
+  save_crops: false
 
 layout:
   count: 28

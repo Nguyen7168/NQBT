@@ -305,6 +305,31 @@ class InspectionWorker(QtCore.QObject):
             x1, y1, x2, y2 = patch.bbox
             color = (0, 255, 0) if status == "OK" else (0, 0, 255)
             overlay = cv2.rectangle(overlay, (x1, y1), (x2, y2), color, 3)
+            label = str(patch.index)
+            box_width = max(x2 - x1, 1)
+            font_scale = max(0.5, min(1.2, box_width / 180))
+            thickness = max(1, int(round(font_scale * 2)))
+            text_origin = (x1 + 4, y1 + int(20 * font_scale))
+            cv2.putText(
+                overlay,
+                label,
+                text_origin,
+                cv2.FONT_HERSHEY_SIMPLEX,
+                font_scale,
+                (0, 0, 0),
+                thickness + 2,
+                cv2.LINE_AA,
+            )
+            cv2.putText(
+                overlay,
+                label,
+                text_origin,
+                cv2.FONT_HERSHEY_SIMPLEX,
+                font_scale,
+                (255, 255, 255),
+                thickness,
+                cv2.LINE_AA,
+            )
         if yolo_result:
             for box, score, cls in zip(yolo_result.boxes, yolo_result.scores, yolo_result.class_ids):
                 x1, y1, x2, y2 = map(int, box)
@@ -336,13 +361,29 @@ class SaveWorker(QtCore.QObject):
             assert isinstance(result, InspectionResult)
             ensure_dir(self.config.io.output_dir)
             output_dir = Path(self.config.io.output_dir)
-            raw_path = output_dir / "raw.png"
             overlay_path = output_dir / "overlay.png"
             json_path = output_dir / "results.json"
+            ts_value = datetime.fromtimestamp(result.timestamp, tz=timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
+            model_name = Path(result.model_path).stem or "model"
+            filename_pattern = self.config.io.filename_pattern
+            raw_name = filename_pattern.format(ts=ts_value, model=model_name, idx=0, cls="raw")
+            raw_dir = ensure_dir(self.config.io.raw_dir)
+            raw_path = raw_dir / raw_name
             save_image(raw_path, result.raw_image)
             save_image(overlay_path, result.overlay_image)
             with json_path.open("w", encoding="utf-8") as fh:
                 json.dump(result.to_json(), fh, indent=2)
+            if self.config.io.save_crops:
+                crops_dir = ensure_dir(self.config.io.crops_dir)
+                for patch, status in zip(result.patches, result.statuses):
+                    crop_name = filename_pattern.format(
+                        ts=ts_value,
+                        model=model_name,
+                        idx=patch.index,
+                        cls=status.lower(),
+                    )
+                    crop_path = crops_dir / crop_name
+                    save_image(crop_path, patch.image)
             # Optionally save per-patch heatmaps and binary masks if available
             if (self.config.io.save_heatmap or self.config.io.save_binary) and result.anomaly_maps:
                 maps_dir = output_dir / "maps"
