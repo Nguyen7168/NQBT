@@ -63,13 +63,13 @@ layout:
   count: 20
   order: "row_major"
   rows: 4
-  cols: 5
+  cols: 7
   patch_padding: 10
   crop_method: "circle"
-  circle_min_radius: 300
-  circle_max_radius: 340
+  circle_min_radius: 245
+  circle_max_radius: 280
   circle_dp: 1.0
-  circle_minDist: 600
+  circle_minDist: 400
   circle_param1: 200
   circle_param2: 9
   circle_radius_expand: 16
