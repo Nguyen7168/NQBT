@@ -16,6 +16,8 @@ plc:
     trigger: "R000"
     ack: "EM7002"
     result_bits_start_word: "EM7001"
+  log_raw_response: false
+  trigger_poll_interval_ms: 50
   timeouts:
     connect_ms: 3000
     cycle_ms: 5000
@@ -50,9 +52,12 @@ models:
 io:
   save_images: true
   output_dir: "runs/latest"
+  raw_dir: "runs/raw"
+  crops_dir: "runs/crops"
   filename_pattern: "{ts}_{model}_{idx:02d}_{cls}.png"
   save_heatmap: false
   save_binary: false
+  save_crops: false
 
 layout:
   count: 20
