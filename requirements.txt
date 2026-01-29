@@ -1,11 +1,11 @@
 --extra-index-url https://download.pytorch.org/whl/cu121
-torch==2.9.1
-torchvision==0.24.1
-torchaudio==2.9.1
+torch
+torchvision
+torchaudio
 numpy==2.1.2
 opencv-python
 PyQt5==5.15.10
 PyYAML==6.0.2
 #onnxruntime==1.19.2
 #ultralytics
-pypylon==4.1.0
+pypylon==3.0.1
