@@ -71,6 +71,16 @@ class CircleCropper:
     def _sort_row_major(circles: np.ndarray, rows: int, cols: int) -> np.ndarray:
         # Sort by y then x (row-major)
         arr = circles.reshape(-1, 3)
+        if rows > 0 and cols > 0 and len(arr) == rows * cols:
+            y_sorted = arr[np.argsort(arr[:, 1])]
+            grouped: list[np.ndarray] = []
+            for row_idx in range(rows):
+                start = row_idx * cols
+                end = start + cols
+                row = y_sorted[start:end]
+                row = row[np.argsort(row[:, 0])]
+                grouped.append(row)
+            return np.vstack(grouped)
         order = np.lexsort((arr[:, 0], arr[:, 1]))
         return arr[order]
 
