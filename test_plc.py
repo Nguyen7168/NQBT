@@ -85,8 +85,8 @@ class PlcTestWindow(QtWidgets.QMainWindow):
         grid.addWidget(self.btn_results_ng, 6, 1)
         grid.addWidget(self.btn_poll, 7, 0)
 
-        self.results_table = QtWidgets.QTableWidget(self.config.layout.count, 4)
-        self.results_table.setHorizontalHeaderLabels(["Index", "App", "PLC", "Match"])
+        self.results_table = QtWidgets.QTableWidget(self.config.layout.count, 5)
+        self.results_table.setHorizontalHeaderLabels(["Index", "Address", "App", "PLC", "Match"])
         self.results_table.verticalHeader().setVisible(False)
         self.results_table.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
         self.results_table.setSelectionMode(QtWidgets.QAbstractItemView.NoSelection)
@@ -170,11 +170,13 @@ class PlcTestWindow(QtWidgets.QMainWindow):
             return None
 
     def _update_results_view(self) -> None:
+        addresses = self._result_addresses()
         plc_results = self._read_plc_results()
         app_results = self.expected_results
         app_ok = app_ng = plc_ok = plc_ng = mismatches = 0
 
         for idx in range(self.config.layout.count):
+            addr_text = addresses[idx] if idx < len(addresses) else "-"
             app_val = app_results[idx] if app_results is not None else None
             plc_val = plc_results[idx] if plc_results is not None else None
             app_text = "OK" if app_val is True else "NG" if app_val is False else "-"
@@ -193,9 +195,10 @@ class PlcTestWindow(QtWidgets.QMainWindow):
             if app_val is not None and plc_val is not None and not match:
                 mismatches += 1
 
-            self.results_table.setItem(idx, 1, QtWidgets.QTableWidgetItem(app_text))
-            self.results_table.setItem(idx, 2, QtWidgets.QTableWidgetItem(plc_text))
-            self.results_table.setItem(idx, 3, QtWidgets.QTableWidgetItem(match_text))
+            self.results_table.setItem(idx, 1, QtWidgets.QTableWidgetItem(addr_text))
+            self.results_table.setItem(idx, 2, QtWidgets.QTableWidgetItem(app_text))
+            self.results_table.setItem(idx, 3, QtWidgets.QTableWidgetItem(plc_text))
+            self.results_table.setItem(idx, 4, QtWidgets.QTableWidgetItem(match_text))
 
         self.lbl_app_results.setText(f"App Results: OK={app_ok} NG={app_ng}")
         if plc_results is None:
