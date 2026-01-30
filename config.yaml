@@ -15,7 +15,7 @@ plc:
     ready: "R1003"
     trigger: "R000"
     ack: "EM7002"
-    result_bits_start_word: "EM7001"
+    result_bits_start_word: "EM7901"
   log_raw_response: false
   trigger_poll_interval_ms: 50
   timeouts:
