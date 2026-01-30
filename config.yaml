@@ -60,7 +60,7 @@ io:
   save_crops: false
 
 layout:
-  count: 20
+  count: 28
   order: "row_major"
   rows: 4
   cols: 7
