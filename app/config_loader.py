@@ -118,6 +118,15 @@ class LayoutConfig:
     circle_dilate_iter: int = 5
     circle_blur_kernel: int = 5
     circle_threshold: int = 50
+    # Watershed-based split parameters
+    ws_scale: float = 0.5
+    ws_dist_ratio: float = 0.4
+    ws_open_ksize: int = 3
+    ws_open_iter: int = 1
+    ws_bg_dilate_iter: int = 2
+    ws_dist_mask_size: int = 5
+    ws_min_area_px: int = 2000
+    ws_max_contour_pts: int = 800
 
 
 @dataclass
