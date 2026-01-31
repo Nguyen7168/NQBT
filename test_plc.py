@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import re
 import sys
 from typing import Optional
 
@@ -50,12 +51,20 @@ class PlcTestWindow(QtWidgets.QMainWindow):
         self.lbl_busy = QtWidgets.QLabel("Busy: ?")
         self.lbl_done = QtWidgets.QLabel("Done: ?")
         self.lbl_error = QtWidgets.QLabel("Error: ?")
+        self.lbl_ready = QtWidgets.QLabel("Ready: ?")
+        self.lbl_app_results = QtWidgets.QLabel("App Results: -")
+        self.lbl_plc_results = QtWidgets.QLabel("PLC Results: -")
+        self.lbl_compare = QtWidgets.QLabel("Compare: -")
 
         grid.addWidget(self.lbl_trigger, 0, 0)
         grid.addWidget(self.lbl_ack, 0, 1)
         grid.addWidget(self.lbl_busy, 1, 0)
         grid.addWidget(self.lbl_done, 1, 1)
         grid.addWidget(self.lbl_error, 1, 2)
+        grid.addWidget(self.lbl_ready, 1, 3)
+        grid.addWidget(self.lbl_app_results, 2, 0)
+        grid.addWidget(self.lbl_plc_results, 2, 1)
+        grid.addWidget(self.lbl_compare, 2, 2)
 
         # Control buttons
         self.btn_busy_on = QtWidgets.QPushButton("Set Busy ON")
@@ -68,15 +77,35 @@ class PlcTestWindow(QtWidgets.QMainWindow):
         self.btn_results_ng = QtWidgets.QPushButton("Write Results: All NG")
         self.btn_poll = QtWidgets.QPushButton("Poll Now")
 
-        grid.addWidget(self.btn_busy_on, 2, 0)
-        grid.addWidget(self.btn_busy_off, 2, 1)
-        grid.addWidget(self.btn_done_on, 3, 0)
-        grid.addWidget(self.btn_done_off, 3, 1)
-        grid.addWidget(self.btn_err_on, 4, 0)
-        grid.addWidget(self.btn_err_off, 4, 1)
-        grid.addWidget(self.btn_results_ok, 5, 0)
-        grid.addWidget(self.btn_results_ng, 5, 1)
-        grid.addWidget(self.btn_poll, 6, 0)
+        grid.addWidget(self.btn_busy_on, 3, 0)
+        grid.addWidget(self.btn_busy_off, 3, 1)
+        grid.addWidget(self.btn_done_on, 4, 0)
+        grid.addWidget(self.btn_done_off, 4, 1)
+        grid.addWidget(self.btn_err_on, 5, 0)
+        grid.addWidget(self.btn_err_off, 5, 1)
+        grid.addWidget(self.btn_results_ok, 6, 0)
+        grid.addWidget(self.btn_results_ng, 6, 1)
+        grid.addWidget(self.btn_poll, 7, 0)
+
+        self.results_table = QtWidgets.QTableWidget(self.config.layout.count, 5)
+        self.results_table.setHorizontalHeaderLabels(["Index", "Address", "App", "PLC", "Match"])
+        self.results_table.verticalHeader().setVisible(False)
+        self.results_table.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
+        self.results_table.setSelectionMode(QtWidgets.QAbstractItemView.NoSelection)
+        self.results_table.setAlternatingRowColors(True)
+        self.results_table.horizontalHeader().setStretchLastSection(True)
+        for row in range(self.config.layout.count):
+            self.results_table.setItem(row, 0, QtWidgets.QTableWidgetItem(str(row + 1)))
+        grid.addWidget(self.results_table, 8, 0, 1, 3)
+
+        self.addr_table = QtWidgets.QTableWidget(6, 2)
+        self.addr_table.setHorizontalHeaderLabels(["Signal", "Address"])
+        self.addr_table.verticalHeader().setVisible(False)
+        self.addr_table.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
+        self.addr_table.setSelectionMode(QtWidgets.QAbstractItemView.NoSelection)
+        self.addr_table.setAlternatingRowColors(True)
+        self.addr_table.horizontalHeader().setStretchLastSection(True)
+        grid.addWidget(self.addr_table, 3, 2, 5, 2)
 
         # Status bar
         self.statusBar().showMessage("PLC: Connected")
@@ -98,6 +127,9 @@ class PlcTestWindow(QtWidgets.QMainWindow):
         self.timer.timeout.connect(self._poll)
         self.timer.start()
 
+        self.expected_results: Optional[list[bool]] = None
+        self._populate_address_table()
+
         # Initial read
         self._poll()
 
@@ -110,15 +142,99 @@ class PlcTestWindow(QtWidgets.QMainWindow):
 
     def _write_all_ok(self) -> None:
         try:
-            self.plc.write_results([True] * self.config.layout.count)
+            self.expected_results = [True] * self.config.layout.count
+            self.plc.write_results(self.expected_results)
+            self._update_results_view()
         except Exception as exc:
             QtWidgets.QMessageBox.critical(self, "Write results failed", str(exc))
 
     def _write_all_ng(self) -> None:
         try:
-            self.plc.write_results([False] * self.config.layout.count)
+            self.expected_results = [False] * self.config.layout.count
+            self.plc.write_results(self.expected_results)
+            self._update_results_view()
         except Exception as exc:
             QtWidgets.QMessageBox.critical(self, "Write results failed", str(exc))
+
+    def _result_addresses(self) -> list[str]:
+        start = self.plc.config.addr.result_bits_start_word
+        match = re.match(r"^([A-Za-z]+)(\d+)(?:\.(\d+))?$", start)
+        if not match:
+            raise ValueError(f"Unsupported result address format: {start}")
+        prefix, base_str, bit_str = match.group(1), match.group(2), match.group(3)
+        count = self.config.layout.count
+        if bit_str is not None or prefix in {"W", "D"}:
+            base = int(base_str)
+            bit_start = int(bit_str or 0)
+            return [
+                f"{prefix}{base + (bit_start + idx) // 16}.{(bit_start + idx) % 16:02d}"
+                for idx in range(count)
+            ]
+        base = int(base_str)
+        return [f"{prefix}{base + idx}" for idx in range(count)]
+
+    def _read_plc_results(self) -> Optional[list[bool]]:
+        try:
+            addresses = self._result_addresses()
+            return [self.plc.client.read_bit(addr) for addr in addresses]
+        except Exception as exc:
+            logging.getLogger(__name__).error("Read PLC results failed: %s", exc)
+            return None
+
+    def _populate_address_table(self) -> None:
+        addr = self.plc.config.addr
+        rows = [
+            ("Trigger", addr.trigger),
+            ("ACK", addr.ack),
+            ("Busy", addr.busy),
+            ("Done", addr.done),
+            ("Error", addr.error),
+            ("Ready", addr.ready),
+        ]
+        for row_idx, (label, address) in enumerate(rows):
+            self.addr_table.setItem(row_idx, 0, QtWidgets.QTableWidgetItem(label))
+            self.addr_table.setItem(row_idx, 1, QtWidgets.QTableWidgetItem(address))
+
+    def _update_results_view(self) -> None:
+        addresses = self._result_addresses()
+        plc_results = self._read_plc_results()
+        app_results = self.expected_results
+        app_ok = app_ng = plc_ok = plc_ng = mismatches = 0
+
+        for idx in range(self.config.layout.count):
+            addr_text = addresses[idx] if idx < len(addresses) else "-"
+            app_val = app_results[idx] if app_results is not None else None
+            plc_val = plc_results[idx] if plc_results is not None else None
+            app_text = "OK" if app_val is True else "NG" if app_val is False else "-"
+            plc_text = "OK" if plc_val is True else "NG" if plc_val is False else "-"
+            match = app_val is not None and plc_val is not None and app_val == plc_val
+            match_text = "OK" if match else "NG" if app_val is not None and plc_val is not None else "-"
+
+            if app_val is True:
+                app_ok += 1
+            elif app_val is False:
+                app_ng += 1
+            if plc_val is True:
+                plc_ok += 1
+            elif plc_val is False:
+                plc_ng += 1
+            if app_val is not None and plc_val is not None and not match:
+                mismatches += 1
+
+            self.results_table.setItem(idx, 1, QtWidgets.QTableWidgetItem(addr_text))
+            self.results_table.setItem(idx, 2, QtWidgets.QTableWidgetItem(app_text))
+            self.results_table.setItem(idx, 3, QtWidgets.QTableWidgetItem(plc_text))
+            self.results_table.setItem(idx, 4, QtWidgets.QTableWidgetItem(match_text))
+
+        self.lbl_app_results.setText(f"App Results: OK={app_ok} NG={app_ng}")
+        if plc_results is None:
+            self.lbl_plc_results.setText("PLC Results: read failed")
+        else:
+            self.lbl_plc_results.setText(f"PLC Results: OK={plc_ok} NG={plc_ng}")
+        if app_results is None or plc_results is None:
+            self.lbl_compare.setText("Compare: -")
+        else:
+            self.lbl_compare.setText(f"Compare: mismatches={mismatches}")
 
     def _poll(self) -> None:
         try:
@@ -129,11 +245,14 @@ class PlcTestWindow(QtWidgets.QMainWindow):
             busy = c.read_bit(addr.busy)
             done = c.read_bit(addr.done)
             err = c.read_bit(addr.error)
+            ready = c.read_bit(addr.ready)
             self.lbl_trigger.setText(f"Trigger: {trigger}")
             self.lbl_ack.setText(f"ACK: {ack}")
             self.lbl_busy.setText(f"Busy: {busy}")
             self.lbl_done.setText(f"Done: {done}")
             self.lbl_error.setText(f"Error: {err}")
+            self.lbl_ready.setText(f"Ready: {ready}")
+            self._update_results_view()
         except Exception as exc:
             logging.getLogger(__name__).error("Poll failed: %s", exc)
 
