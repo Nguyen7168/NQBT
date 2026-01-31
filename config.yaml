@@ -68,15 +68,13 @@ layout:
   crop_method: "circle"
   circle_min_radius: 245
   circle_max_radius: 280
-  circle_dp: 1.0
-  circle_minDist: 400
-  circle_param1: 200
-  circle_param2: 9
   circle_radius_expand: 16
   circle_erode_iter: 5
   circle_dilate_iter: 5
   circle_blur_kernel: 5
   circle_threshold: 50
+  circle_use_otsu: false
+  circle_invert: false
   ws_scale: 0.5
   ws_dist_ratio: 0.4
   ws_open_ksize: 3

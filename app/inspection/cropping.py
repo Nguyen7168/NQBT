@@ -48,7 +48,15 @@ class CircleCropper:
         if self.layout.circle_erode_iter > 0:
             ker = np.ones((9, 9), np.uint8)
             gray = cv2.erode(gray, ker, iterations=int(self.layout.circle_erode_iter))
-        _, thresh = cv2.threshold(gray, int(self.layout.circle_threshold), 255, 0)
+        if self.layout.circle_use_otsu:
+            thresh_type = cv2.THRESH_BINARY + cv2.THRESH_OTSU
+            thresh_value = 0
+        else:
+            thresh_type = cv2.THRESH_BINARY
+            thresh_value = int(self.layout.circle_threshold)
+        _, thresh = cv2.threshold(gray, thresh_value, 255, thresh_type)
+        if self.layout.circle_invert:
+            thresh = cv2.bitwise_not(thresh)
         if self.layout.circle_dilate_iter > 0:
             kernel1 = np.ones((4, 4), np.uint8)
             thresh = cv2.dilate(thresh, kernel1, iterations=int(self.layout.circle_dilate_iter))
