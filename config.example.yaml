@@ -48,3 +48,20 @@ layout:
   rows: 4
   cols: 7
   patch_padding: 10
+  circle_min_radius: 300
+  circle_max_radius: 340
+  circle_radius_expand: 16
+  circle_erode_iter: 5
+  circle_dilate_iter: 5
+  circle_blur_kernel: 5
+  circle_threshold: 50
+  circle_use_otsu: false
+  circle_invert: false
+  ws_scale: 0.5
+  ws_dist_ratio: 0.4
+  ws_open_ksize: 3
+  ws_open_iter: 1
+  ws_bg_dilate_iter: 2
+  ws_dist_mask_size: 5
+  ws_min_area_px: 2000
+  ws_max_contour_pts: 800
