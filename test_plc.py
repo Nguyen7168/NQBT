@@ -51,6 +51,7 @@ class PlcTestWindow(QtWidgets.QMainWindow):
         self.lbl_busy = QtWidgets.QLabel("Busy: ?")
         self.lbl_done = QtWidgets.QLabel("Done: ?")
         self.lbl_error = QtWidgets.QLabel("Error: ?")
+        self.lbl_ready = QtWidgets.QLabel("Ready: ?")
         self.lbl_app_results = QtWidgets.QLabel("App Results: -")
         self.lbl_plc_results = QtWidgets.QLabel("PLC Results: -")
         self.lbl_compare = QtWidgets.QLabel("Compare: -")
@@ -60,6 +61,7 @@ class PlcTestWindow(QtWidgets.QMainWindow):
         grid.addWidget(self.lbl_busy, 1, 0)
         grid.addWidget(self.lbl_done, 1, 1)
         grid.addWidget(self.lbl_error, 1, 2)
+        grid.addWidget(self.lbl_ready, 1, 3)
         grid.addWidget(self.lbl_app_results, 2, 0)
         grid.addWidget(self.lbl_plc_results, 2, 1)
         grid.addWidget(self.lbl_compare, 2, 2)
@@ -96,6 +98,15 @@ class PlcTestWindow(QtWidgets.QMainWindow):
             self.results_table.setItem(row, 0, QtWidgets.QTableWidgetItem(str(row + 1)))
         grid.addWidget(self.results_table, 8, 0, 1, 3)
 
+        self.addr_table = QtWidgets.QTableWidget(6, 2)
+        self.addr_table.setHorizontalHeaderLabels(["Signal", "Address"])
+        self.addr_table.verticalHeader().setVisible(False)
+        self.addr_table.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
+        self.addr_table.setSelectionMode(QtWidgets.QAbstractItemView.NoSelection)
+        self.addr_table.setAlternatingRowColors(True)
+        self.addr_table.horizontalHeader().setStretchLastSection(True)
+        grid.addWidget(self.addr_table, 3, 2, 5, 2)
+
         # Status bar
         self.statusBar().showMessage("PLC: Connected")
 
@@ -117,6 +128,7 @@ class PlcTestWindow(QtWidgets.QMainWindow):
         self.timer.start()
 
         self.expected_results: Optional[list[bool]] = None
+        self._populate_address_table()
 
         # Initial read
         self._poll()
@@ -169,6 +181,20 @@ class PlcTestWindow(QtWidgets.QMainWindow):
             logging.getLogger(__name__).error("Read PLC results failed: %s", exc)
             return None
 
+    def _populate_address_table(self) -> None:
+        addr = self.plc.config.addr
+        rows = [
+            ("Trigger", addr.trigger),
+            ("ACK", addr.ack),
+            ("Busy", addr.busy),
+            ("Done", addr.done),
+            ("Error", addr.error),
+            ("Ready", addr.ready),
+        ]
+        for row_idx, (label, address) in enumerate(rows):
+            self.addr_table.setItem(row_idx, 0, QtWidgets.QTableWidgetItem(label))
+            self.addr_table.setItem(row_idx, 1, QtWidgets.QTableWidgetItem(address))
+
     def _update_results_view(self) -> None:
         addresses = self._result_addresses()
         plc_results = self._read_plc_results()
@@ -219,11 +245,13 @@ class PlcTestWindow(QtWidgets.QMainWindow):
             busy = c.read_bit(addr.busy)
             done = c.read_bit(addr.done)
             err = c.read_bit(addr.error)
+            ready = c.read_bit(addr.ready)
             self.lbl_trigger.setText(f"Trigger: {trigger}")
             self.lbl_ack.setText(f"ACK: {ack}")
             self.lbl_busy.setText(f"Busy: {busy}")
             self.lbl_done.setText(f"Done: {done}")
             self.lbl_error.setText(f"Error: {err}")
+            self.lbl_ready.setText(f"Ready: {ready}")
             self._update_results_view()
         except Exception as exc:
             logging.getLogger(__name__).error("Poll failed: %s", exc)
