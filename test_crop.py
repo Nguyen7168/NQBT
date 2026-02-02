@@ -105,7 +105,7 @@ class PipelineViewer(QWidget):
         self.stage_combo.currentTextChanged.connect(self.update_preview)
 
         btn_load = QPushButton("Load Image")
-        btn_load.clicked.connect(self.load_image)
+        btn_load.clicked.connect(lambda _=False: self.load_image())
 
         btn_save = QPushButton("Save Current Stage...")
         btn_save.clicked.connect(self.save_current_stage)
