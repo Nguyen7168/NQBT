@@ -48,9 +48,9 @@ layout:
   rows: 4
   cols: 7
   patch_padding: 10
-  circle_min_radius: 300
-  circle_max_radius: 340
-  circle_radius_expand: 16
+  circle_min_radius: 250
+  circle_max_radius: 270
+  circle_radius_expand: 0
   circle_erode_iter: 0
   circle_dilate_iter: 0
   circle_blur_kernel: 5
