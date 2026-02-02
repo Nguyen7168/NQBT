@@ -321,7 +321,14 @@ class PipelineViewer(QWidget):
             return
 
         self.original = img
-        self.recompute_pipeline()
+        try:
+            self.recompute_pipeline()
+        except Exception as exc:
+            QMessageBox.critical(self, "Error", f"Failed to process image: {exc}")
+            self.stages = {"Original": img}
+            self.stage_combo.setCurrentText("Original")
+            self.update_preview()
+            return
         self.stage_combo.setCurrentText("Overlay")
         self.update_preview()
 
@@ -470,7 +477,9 @@ class PipelineViewer(QWidget):
             return
         pix = cv_to_qpixmap(img)
         if self.auto_fit.isChecked():
-            pix = pix.scaled(self.image_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            target_size = self.image_label.size()
+            if target_size.width() > 1 and target_size.height() > 1:
+                pix = pix.scaled(target_size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
         self.image_label.setPixmap(pix)
 
     def resizeEvent(self, event) -> None:
