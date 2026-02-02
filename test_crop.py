@@ -94,6 +94,8 @@ class PipelineViewer(QWidget):
         self.stages: dict[str, np.ndarray] = {}
         self.detected: int | None = None
         self.expected: int | None = None
+        self.image_paths: list[Path] = []
+        self.image_index: int | None = None
 
         self.image_label = QLabel("Load an image...")
         self.image_label.setAlignment(Qt.AlignCenter)
@@ -107,6 +109,12 @@ class PipelineViewer(QWidget):
         btn_load = QPushButton("Load Image")
         btn_load.clicked.connect(lambda _=False: self.load_image())
 
+        btn_prev = QPushButton("Previous")
+        btn_prev.clicked.connect(lambda _=False: self.prev_image())
+
+        btn_next = QPushButton("Next")
+        btn_next.clicked.connect(lambda _=False: self.next_image())
+
         btn_save = QPushButton("Save Current Stage...")
         btn_save.clicked.connect(self.save_current_stage)
 
@@ -119,6 +127,8 @@ class PipelineViewer(QWidget):
 
         top_bar = QHBoxLayout()
         top_bar.addWidget(btn_load)
+        top_bar.addWidget(btn_prev)
+        top_bar.addWidget(btn_next)
         top_bar.addWidget(QLabel("View stage:"))
         top_bar.addWidget(self.stage_combo, 1)
         top_bar.addWidget(btn_save)
@@ -318,7 +328,10 @@ class PipelineViewer(QWidget):
         if not path:
             return
 
-        img = cv2.imread(path, cv2.IMREAD_COLOR)
+        self._set_image_list(Path(path))
+        if self.image_index is None:
+            return
+        img = cv2.imread(str(self.image_paths[self.image_index]), cv2.IMREAD_COLOR)
         if img is None:
             QMessageBox.critical(self, "Error", "Cannot read image.")
             return
@@ -334,6 +347,52 @@ class PipelineViewer(QWidget):
             return
         self.stage_combo.setCurrentText("Overlay")
         self.update_preview()
+
+    def _set_image_list(self, path: Path) -> None:
+        exts = {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff"}
+        if path.exists() and path.is_file():
+            folder = path.parent
+            images = [p for p in sorted(folder.iterdir()) if p.suffix.lower() in exts]
+            self.image_paths = images
+            try:
+                self.image_index = images.index(path)
+            except ValueError:
+                self.image_index = 0 if images else None
+        else:
+            self.image_paths = []
+            self.image_index = None
+
+    def _load_index(self, new_index: int) -> None:
+        if not self.image_paths:
+            return
+        if not (0 <= new_index < len(self.image_paths)):
+            return
+        self.image_index = new_index
+        img = cv2.imread(str(self.image_paths[self.image_index]), cv2.IMREAD_COLOR)
+        if img is None:
+            QMessageBox.critical(self, "Error", "Cannot read image.")
+            return
+        self.original = img
+        try:
+            self.recompute_pipeline()
+        except Exception as exc:
+            QMessageBox.critical(self, "Error", f"Failed to process image: {exc}")
+            self.stages = {"Original": img}
+            self.stage_combo.setCurrentText("Original")
+            self.update_preview()
+            return
+        self.stage_combo.setCurrentText("Overlay")
+        self.update_preview()
+
+    def prev_image(self) -> None:
+        if self.image_index is None:
+            return
+        self._load_index(self.image_index - 1)
+
+    def next_image(self) -> None:
+        if self.image_index is None:
+            return
+        self._load_index(self.image_index + 1)
 
     def save_current_stage(self) -> None:
         if not self.stages:
