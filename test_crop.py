@@ -306,12 +306,15 @@ class PipelineViewer(QWidget):
 
     def load_image(self, path: str | None = None) -> None:
         if path is None:
-            path, _ = QFileDialog.getOpenFileName(
-                self,
-                "Select image",
-                "",
-                "Images (*.png *.jpg *.jpeg *.bmp *.tif *.tiff);;All files (*.*)",
-            )
+            dialog = QFileDialog(self, "Select image")
+            dialog.setNameFilter("Images (*.png *.jpg *.jpeg *.bmp *.tif *.tiff);;All files (*.*)")
+            dialog.setFileMode(QFileDialog.ExistingFile)
+            dialog.setOptions(QFileDialog.DontUseNativeDialog)
+            if dialog.exec_():
+                files = dialog.selectedFiles()
+                path = files[0] if files else ""
+            else:
+                path = ""
         if not path:
             return
 
