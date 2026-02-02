@@ -109,15 +109,22 @@ class LayoutConfig:
     # Circle crop parameters (defaults inspired by crop_hc_23_240.py)
     circle_min_radius: int = 300
     circle_max_radius: int = 340
-    circle_dp: float = 1.0
-    circle_minDist: float = 600.0
-    circle_param1: float = 200.0
-    circle_param2: float = 9.0
     circle_radius_expand: int = 16
-    circle_erode_iter: int = 5
-    circle_dilate_iter: int = 5
+    circle_erode_iter: int = 0
+    circle_dilate_iter: int = 0
     circle_blur_kernel: int = 5
     circle_threshold: int = 50
+    circle_use_otsu: bool = False
+    circle_invert: bool = False
+    # Watershed-based split parameters
+    ws_scale: float = 0.5
+    ws_dist_ratio: float = 0.4
+    ws_open_ksize: int = 3
+    ws_open_iter: int = 1
+    ws_bg_dilate_iter: int = 2
+    ws_dist_mask_size: int = 5
+    ws_min_area_px: int = 2000
+    ws_max_contour_pts: int = 800
 
 
 @dataclass
