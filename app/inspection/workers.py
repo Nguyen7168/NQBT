@@ -183,7 +183,7 @@ class InspectionWorker(QtCore.QObject):
                 if mismatch:
                     LOGGER.warning("Circle detection mismatch: detected %s, expected %s", detected, expected)
                     self.plc.write_results([False] * expected)
-                    self.plc.set_error(True)
+                    self.plc.set_error(False)
                 else:
                     self.plc.write_results([status == "OK" for status in statuses])
                     self.plc.set_error(False)
