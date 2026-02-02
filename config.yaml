@@ -69,8 +69,8 @@ layout:
   circle_min_radius: 245
   circle_max_radius: 280
   circle_radius_expand: 16
-  circle_erode_iter: 5
-  circle_dilate_iter: 5
+  circle_erode_iter: 0
+  circle_dilate_iter: 0
   circle_blur_kernel: 5
   circle_threshold: 50
   circle_use_otsu: false

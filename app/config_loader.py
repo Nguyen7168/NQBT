@@ -110,8 +110,8 @@ class LayoutConfig:
     circle_min_radius: int = 300
     circle_max_radius: int = 340
     circle_radius_expand: int = 16
-    circle_erode_iter: int = 5
-    circle_dilate_iter: int = 5
+    circle_erode_iter: int = 0
+    circle_dilate_iter: int = 0
     circle_blur_kernel: int = 5
     circle_threshold: int = 50
     circle_use_otsu: bool = False
