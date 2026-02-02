@@ -54,6 +54,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.image_label = QtWidgets.QLabel()
         self.image_label.setMinimumSize(960, 540)
+        self.image_label.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
         self.image_label.setAlignment(QtCore.Qt.AlignCenter)
         self.image_label.setStyleSheet("background-color: #1e1e1e; border: 1px solid #555;")
         content_layout.addWidget(self.image_label, stretch=2)
@@ -73,8 +74,16 @@ class MainWindow(QtWidgets.QMainWindow):
         self.result_table.verticalHeader().setSectionResizeMode(QtWidgets.QHeaderView.Fixed)
         self.result_table.setSizeAdjustPolicy(QtWidgets.QAbstractScrollArea.AdjustIgnored)
         self.result_table.setWordWrap(False)
+        self.result_table.setSizePolicy(QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Fixed)
         self._set_table_row_heights(self.result_table)
-        inspection_layout.addWidget(self.result_table)
+        header_height = self.result_table.horizontalHeader().height()
+        table_height = header_height + (self._table_row_height * self.config.layout.count) + 4
+        self.result_table.setFixedHeight(table_height)
+        table_scroll = QtWidgets.QScrollArea()
+        table_scroll.setWidgetResizable(True)
+        table_scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
+        table_scroll.setWidget(self.result_table)
+        inspection_layout.addWidget(table_scroll)
 
         info_group = QtWidgets.QGroupBox("Summary")
         form = QtWidgets.QFormLayout(info_group)
