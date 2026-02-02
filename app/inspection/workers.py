@@ -198,7 +198,10 @@ class InspectionWorker(QtCore.QObject):
                 finally:
                     self.cycle_failed.emit(str(exc))
             finally:
-                self.plc.finalize_cycle()
+                try:
+                    self.plc.finalize_cycle()
+                except Exception:
+                    LOGGER.exception("Finalize cycle failed")
 
     @QtCore.pyqtSlot()
     def shutdown(self) -> None:  # pragma: no cover - cleanup

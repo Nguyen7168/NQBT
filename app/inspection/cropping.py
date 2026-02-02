@@ -171,16 +171,39 @@ class CircleCropper:
     def _sort_row_major(circles: np.ndarray, rows: int, cols: int) -> np.ndarray:
         # Sort by y then x (row-major)
         arr = circles.reshape(-1, 3)
-        if rows > 0 and cols > 0 and len(arr) == rows * cols:
-            y_sorted = arr[np.argsort(arr[:, 1])]
-            grouped: list[np.ndarray] = []
-            for row_idx in range(rows):
-                start = row_idx * cols
-                end = start + cols
-                row = y_sorted[start:end]
-                row = row[np.argsort(row[:, 0])]
-                grouped.append(row)
-            return np.vstack(grouped)
+        if rows > 0 and cols > 0 and arr.size > 0:
+            x_min, x_max = float(arr[:, 0].min()), float(arr[:, 0].max())
+            y_min, y_max = float(arr[:, 1].min()), float(arr[:, 1].max())
+            if x_min == x_max or y_min == y_max:
+                order = np.lexsort((arr[:, 0], arr[:, 1]))
+                return arr[order]
+            grid_x = np.linspace(x_min, x_max, cols)
+            grid_y = np.linspace(y_min, y_max, rows)
+            centers = np.array([(x, y) for y in grid_y for x in grid_x], dtype=np.float64)
+
+            dists = np.sum((arr[:, None, :2] - centers[None, :, :]) ** 2, axis=2)
+            assigned: list[np.ndarray] = [None] * len(centers)
+            available_rows = list(range(dists.shape[0]))
+            available_cols = list(range(dists.shape[1]))
+            while available_rows and available_cols:
+                best = None
+                best_r = None
+                best_c = None
+                for r in available_rows:
+                    row = dists[r]
+                    c = min(available_cols, key=row.__getitem__)
+                    dist = row[c]
+                    if best is None or dist < best:
+                        best = dist
+                        best_r = r
+                        best_c = c
+                assigned[best_c] = arr[best_r]
+                available_rows.remove(best_r)
+                available_cols.remove(best_c)
+
+            ordered = [row for row in assigned if row is not None]
+            if ordered:
+                return np.vstack(ordered)
         order = np.lexsort((arr[:, 0], arr[:, 1]))
         return arr[order]
 
