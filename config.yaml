@@ -4,6 +4,12 @@ camera:
   gain: 0
   pixel_format: "BayerRG8"
 
+window:
+  x: 0
+  y: 0
+  width: 1400
+  height: 900
+
 plc:
   protocol: "ASCII_TCP"
   ip: "192.168.0.100"
