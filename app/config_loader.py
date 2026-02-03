@@ -128,12 +128,21 @@ class LayoutConfig:
 
 
 @dataclass
+class WindowConfig:
+    x: Optional[int] = None
+    y: Optional[int] = None
+    width: Optional[int] = None
+    height: Optional[int] = None
+
+
+@dataclass
 class AppConfig:
     camera: CameraConfig
     plc: PlcConfig
     models: ModelConfig
     io: IOConfig
     layout: LayoutConfig
+    window: Optional[WindowConfig] = None
 
 
 class ConfigError(RuntimeError):
@@ -214,5 +223,14 @@ def load_config(path: str | Path) -> AppConfig:
 
     io_cfg = IOConfig(**raw.get("io", {}))
     layout = LayoutConfig(**_require(raw, "layout"))
+    window_raw = raw.get("window")
+    window_cfg = WindowConfig(**window_raw) if isinstance(window_raw, dict) else None
 
-    return AppConfig(camera=camera, plc=plc, models=models, io=io_cfg, layout=layout)
+    return AppConfig(
+        camera=camera,
+        plc=plc,
+        models=models,
+        io=io_cfg,
+        layout=layout,
+        window=window_cfg,
+    )
