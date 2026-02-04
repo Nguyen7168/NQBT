@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+import time
 from pathlib import Path
 
 import cv2
@@ -124,6 +125,8 @@ class PipelineViewer(QWidget):
 
         self.status_label = QLabel("Status: ready")
         self.status_label.setStyleSheet("color: #ddd;")
+        self.radii_label = QLabel("Radii: -")
+        self.radii_label.setStyleSheet("color: #bbb;")
 
         top_bar = QHBoxLayout()
         top_bar.addWidget(btn_load)
@@ -138,6 +141,7 @@ class PipelineViewer(QWidget):
         left_layout.addLayout(top_bar)
         left_layout.addWidget(self.image_label, 1)
         left_layout.addWidget(self.status_label)
+        left_layout.addWidget(self.radii_label)
 
         controls_layout = QVBoxLayout()
         controls_layout.addWidget(self._build_circle_group())
@@ -449,6 +453,7 @@ class PipelineViewer(QWidget):
             self.stages = {}
             return
 
+        start = time.perf_counter()
         stages: dict[str, np.ndarray] = {}
         stages["Original"] = self.original.copy()
 
@@ -495,6 +500,7 @@ class PipelineViewer(QWidget):
 
         overlay = self.original.copy()
         circles: list[tuple[float, float, float]] = []
+        radii: list[float] = []
         labels = np.unique(markers)
         labels = labels[labels > 1]
         for lb in labels:
@@ -514,6 +520,7 @@ class PipelineViewer(QWidget):
             if not (self.layout.circle_min_radius <= r <= self.layout.circle_max_radius):
                 continue
             circles.append((cx, cy, r))
+            radii.append(float(r))
 
         mask = np.zeros(self.original.shape[:2], dtype=np.uint8)
         for cx, cy, r in circles:
@@ -525,9 +532,18 @@ class PipelineViewer(QWidget):
 
         self.detected = len(circles)
         self.expected = int(self.layout.count)
+        elapsed_ms = (time.perf_counter() - start) * 1000.0
         self.status_label.setText(
-            f"Status: detected {self.detected}/{self.expected} circles | config {Path(self.config_path).name}"
+            "Status: detected"
+            f" {self.detected}/{self.expected} circles"
+            f" | {elapsed_ms:.1f} ms"
+            f" | config {Path(self.config_path).name}"
         )
+        if radii:
+            radii_text = ", ".join(f"{r:.1f}" for r in radii)
+            self.radii_label.setText(f"Radii: {radii_text}")
+        else:
+            self.radii_label.setText("Radii: -")
         self.stages = stages
 
     def update_preview(self) -> None:
