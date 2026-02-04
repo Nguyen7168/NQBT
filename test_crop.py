@@ -471,7 +471,6 @@ class PipelineViewer(QWidget):
                 self.update_preview()
             return
 
-        self.stage_combo.setCurrentText("Overlay")
         self.update_preview()
 
     def _compute_threshold(self, img: np.ndarray) -> np.ndarray:
