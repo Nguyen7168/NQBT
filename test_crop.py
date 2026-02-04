@@ -124,9 +124,17 @@ class PipelineViewer(QWidget):
         self.auto_fit.stateChanged.connect(self.update_preview)
 
         self.status_label = QLabel("Status: ready")
+<<<<<<< codex/explain-adjustment-parameters-in-test_crop.py-udlfo7
+        self.status_label.setStyleSheet("color: #fff; font-weight: 600;")
+        self.radii_label = QLabel("Radii: -")
+        self.radii_label.setStyleSheet("color: #bbb;")
+        self.stats_label = QLabel("Stats: -")
+        self.stats_label.setStyleSheet("color: #ddd;")
+=======
         self.status_label.setStyleSheet("color: #ddd;")
         self.radii_label = QLabel("Radii: -")
         self.radii_label.setStyleSheet("color: #bbb;")
+>>>>>>> main
 
         top_bar = QHBoxLayout()
         top_bar.addWidget(btn_load)
@@ -142,6 +150,10 @@ class PipelineViewer(QWidget):
         left_layout.addWidget(self.image_label, 1)
         left_layout.addWidget(self.status_label)
         left_layout.addWidget(self.radii_label)
+<<<<<<< codex/explain-adjustment-parameters-in-test_crop.py-udlfo7
+        left_layout.addWidget(self.stats_label)
+=======
+>>>>>>> main
 
         controls_layout = QVBoxLayout()
         controls_layout.addWidget(self._build_circle_group())
@@ -524,8 +536,38 @@ class PipelineViewer(QWidget):
 
         mask = np.zeros(self.original.shape[:2], dtype=np.uint8)
         for cx, cy, r in circles:
-            cv2.circle(mask, (int(round(cx)), int(round(cy))), int(round(r)), 255, -1)
-            cv2.circle(overlay, (int(round(cx)), int(round(cy))), int(round(r)), (0, 255, 0), 6)
+            center = (int(round(cx)), int(round(cy)))
+            radius = int(round(r))
+            cv2.circle(mask, center, radius, 255, -1)
+            cv2.circle(overlay, center, radius, (0, 255, 0), 6)
+            label = f"{r:.1f}"
+            base_size, _ = cv2.getTextSize("0", cv2.FONT_HERSHEY_SIMPLEX, 1.0, 1)
+            base_height = max(base_size[1], 1)
+            target_height = max(r / 3.0, 8.0)
+            font_scale = max(0.3, target_height / base_height)
+            thickness = max(1, int(round(font_scale * 1.2)))
+            (text_w, text_h), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, font_scale, thickness)
+            text_org = (center[0] - text_w // 2, center[1] + text_h // 2)
+            cv2.putText(
+                overlay,
+                label,
+                text_org,
+                cv2.FONT_HERSHEY_SIMPLEX,
+                font_scale,
+                (0, 0, 0),
+                thickness + 2,
+                cv2.LINE_AA,
+            )
+            cv2.putText(
+                overlay,
+                label,
+                text_org,
+                cv2.FONT_HERSHEY_SIMPLEX,
+                font_scale,
+                (255, 255, 255),
+                thickness,
+                cv2.LINE_AA,
+            )
 
         stages["CircleMask"] = mask
         stages["Overlay"] = overlay
@@ -536,14 +578,39 @@ class PipelineViewer(QWidget):
         self.status_label.setText(
             "Status: detected"
             f" {self.detected}/{self.expected} circles"
+<<<<<<< codex/explain-adjustment-parameters-in-test_crop.py-udlfo7
+            f" | time {elapsed_ms:.1f} ms"
+=======
             f" | {elapsed_ms:.1f} ms"
+>>>>>>> main
             f" | config {Path(self.config_path).name}"
         )
         if radii:
             radii_text = ", ".join(f"{r:.1f}" for r in radii)
             self.radii_label.setText(f"Radii: {radii_text}")
+<<<<<<< codex/explain-adjustment-parameters-in-test_crop.py-udlfo7
+            radii_arr = np.array(radii, dtype=np.float32)
+            mean_radius = float(radii_arr.mean())
+            mean_diameter = mean_radius * 2.0
+            radius_range = float(radii_arr.max() - radii_arr.min())
+            std_radius = float(radii_arr.std())
+            cv_radius = (std_radius / mean_radius) if mean_radius > 1e-6 else 0.0
+            pct_detect = (self.detected / self.expected * 100.0) if self.expected else 0.0
+            self.stats_label.setText(
+                "Stats: "
+                f"mean diameter {mean_diameter:.1f}"
+                f" | range {radius_range:.1f}"
+                f" | std {std_radius:.2f}"
+                f" | cv {cv_radius:.3f}"
+                f" | % detect {pct_detect:.1f}%"
+            )
         else:
             self.radii_label.setText("Radii: -")
+            self.stats_label.setText("Stats: -")
+=======
+        else:
+            self.radii_label.setText("Radii: -")
+>>>>>>> main
         self.stages = stages
 
     def update_preview(self) -> None:
