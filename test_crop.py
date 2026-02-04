@@ -124,11 +124,17 @@ class PipelineViewer(QWidget):
         self.auto_fit.stateChanged.connect(self.update_preview)
 
         self.status_label = QLabel("Status: ready")
+<<<<<<< codex/explain-adjustment-parameters-in-test_crop.py-udlfo7
         self.status_label.setStyleSheet("color: #fff; font-weight: 600;")
         self.radii_label = QLabel("Radii: -")
         self.radii_label.setStyleSheet("color: #bbb;")
         self.stats_label = QLabel("Stats: -")
         self.stats_label.setStyleSheet("color: #ddd;")
+=======
+        self.status_label.setStyleSheet("color: #ddd;")
+        self.radii_label = QLabel("Radii: -")
+        self.radii_label.setStyleSheet("color: #bbb;")
+>>>>>>> main
 
         top_bar = QHBoxLayout()
         top_bar.addWidget(btn_load)
@@ -144,7 +150,10 @@ class PipelineViewer(QWidget):
         left_layout.addWidget(self.image_label, 1)
         left_layout.addWidget(self.status_label)
         left_layout.addWidget(self.radii_label)
+<<<<<<< codex/explain-adjustment-parameters-in-test_crop.py-udlfo7
         left_layout.addWidget(self.stats_label)
+=======
+>>>>>>> main
 
         controls_layout = QVBoxLayout()
         controls_layout.addWidget(self._build_circle_group())
@@ -569,12 +578,17 @@ class PipelineViewer(QWidget):
         self.status_label.setText(
             "Status: detected"
             f" {self.detected}/{self.expected} circles"
+<<<<<<< codex/explain-adjustment-parameters-in-test_crop.py-udlfo7
             f" | time {elapsed_ms:.1f} ms"
+=======
+            f" | {elapsed_ms:.1f} ms"
+>>>>>>> main
             f" | config {Path(self.config_path).name}"
         )
         if radii:
             radii_text = ", ".join(f"{r:.1f}" for r in radii)
             self.radii_label.setText(f"Radii: {radii_text}")
+<<<<<<< codex/explain-adjustment-parameters-in-test_crop.py-udlfo7
             radii_arr = np.array(radii, dtype=np.float32)
             mean_radius = float(radii_arr.mean())
             mean_diameter = mean_radius * 2.0
@@ -593,6 +607,10 @@ class PipelineViewer(QWidget):
         else:
             self.radii_label.setText("Radii: -")
             self.stats_label.setText("Stats: -")
+=======
+        else:
+            self.radii_label.setText("Radii: -")
+>>>>>>> main
         self.stages = stages
 
     def update_preview(self) -> None:

@@ -4,6 +4,12 @@ camera:
   gain: 0
   pixel_format: "BayerRG8"
 
+window:
+  x: 0
+  y: 0
+  width: 1400
+  height: 900
+
 plc:
   protocol: "ASCII_TCP"
   ip: "192.168.0.100"
@@ -71,12 +77,12 @@ layout:
   circle_radius_expand: 0
   circle_erode_iter: 0
   circle_dilate_iter: 0
-  circle_blur_kernel: 5
+  circle_blur_kernel: 3
   circle_threshold: 50
   circle_use_otsu: false
   circle_invert: false
   ws_scale: 0.5
-  ws_dist_ratio: 0.4
+  ws_dist_ratio: 0.45
   ws_open_ksize: 3
   ws_open_iter: 1
   ws_bg_dilate_iter: 2

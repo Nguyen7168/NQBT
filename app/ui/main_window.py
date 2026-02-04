@@ -38,33 +38,74 @@ class MainWindow(QtWidgets.QMainWindow):
         self._manual_images: List[np.ndarray] = []
         self._manual_index = 0
         self.setWindowTitle("Bearing Inspection")
-        self.resize(1400, 900)
+        self._apply_window_geometry()
 
         self._init_ui()
         self._init_workers()
         self._show_startup_health()
+
+    def _apply_window_geometry(self) -> None:
+        window_cfg = getattr(self.config, "window", None)
+        if window_cfg and window_cfg.width and window_cfg.height:
+            self.resize(window_cfg.width, window_cfg.height)
+        else:
+            self.resize(1400, 900)
+        if window_cfg and window_cfg.x is not None and window_cfg.y is not None:
+            self.move(window_cfg.x, window_cfg.y)
 
     def _init_ui(self) -> None:
         central = QtWidgets.QWidget(self)
         self.setCentralWidget(central)
 
         main_layout = QtWidgets.QVBoxLayout(central)
-        content_layout = QtWidgets.QHBoxLayout()
-        main_layout.addLayout(content_layout)
-
-        self.image_label = QtWidgets.QLabel()
-        self.image_label.setMinimumSize(960, 540)
-        self.image_label.setAlignment(QtCore.Qt.AlignCenter)
-        self.image_label.setStyleSheet("background-color: #1e1e1e; border: 1px solid #555;")
-        content_layout.addWidget(self.image_label, stretch=2)
 
         right_tabs = QtWidgets.QTabWidget()
-        right_tabs.setMinimumWidth(420)
-        content_layout.addWidget(right_tabs, stretch=1)
+        main_layout.addWidget(right_tabs)
 
         inspection_tab = QtWidgets.QWidget()
         right_tabs.addTab(inspection_tab, "Inspection")
         inspection_layout = QtWidgets.QVBoxLayout(inspection_tab)
+
+        summary_bar = QtWidgets.QHBoxLayout()
+        summary_widget = QtWidgets.QWidget()
+        summary_form = QtWidgets.QFormLayout(summary_widget)
+        self.ok_label = QtWidgets.QLabel("0")
+        self.ng_label = QtWidgets.QLabel("0")
+        summary_form.addRow("OK total", self.ok_label)
+        summary_form.addRow("NG total", self.ng_label)
+        summary_bar.addWidget(summary_widget, stretch=1)
+
+        model_widget = QtWidgets.QWidget()
+        model_layout = QtWidgets.QVBoxLayout(model_widget)
+        model_title = QtWidgets.QLabel("Model")
+        self.model_label = QtWidgets.QLabel(self._current_model_path())
+        model_layout.addWidget(model_title)
+        model_layout.addWidget(self.model_label)
+
+        controls_layout = QtWidgets.QGridLayout()
+        self.capture_button = QtWidgets.QPushButton("Capture")
+        self.load_model_button = QtWidgets.QPushButton("Load model")
+        self.open_image_button = QtWidgets.QPushButton("Open image")
+        self.run_anomaly_button = QtWidgets.QPushButton("Run anomaly")
+        self.prev_button = QtWidgets.QPushButton("Previous")
+        self.next_button = QtWidgets.QPushButton("Next")
+        controls_layout.addWidget(self.capture_button, 0, 0)
+        controls_layout.addWidget(self.load_model_button, 0, 1)
+        controls_layout.addWidget(self.open_image_button, 0, 2)
+        controls_layout.addWidget(self.run_anomaly_button, 1, 0)
+        controls_layout.addWidget(self.prev_button, 1, 1)
+        controls_layout.addWidget(self.next_button, 1, 2)
+        model_layout.addLayout(controls_layout)
+
+        summary_bar.addWidget(model_widget, stretch=2)
+        inspection_layout.addLayout(summary_bar)
+
+        self.image_label = QtWidgets.QLabel()
+        self.image_label.setMinimumSize(960, 540)
+        self.image_label.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
+        self.image_label.setAlignment(QtCore.Qt.AlignCenter)
+        self.image_label.setStyleSheet("background-color: #1e1e1e; border: 1px solid #555;")
+        inspection_layout.addWidget(self.image_label)
 
         self.result_table = QtWidgets.QTableWidget(0, 3)
         self.result_table.setHorizontalHeaderLabels(["Index", "Score", "Status"])
@@ -73,35 +114,16 @@ class MainWindow(QtWidgets.QMainWindow):
         self.result_table.verticalHeader().setSectionResizeMode(QtWidgets.QHeaderView.Fixed)
         self.result_table.setSizeAdjustPolicy(QtWidgets.QAbstractScrollArea.AdjustIgnored)
         self.result_table.setWordWrap(False)
+        self.result_table.setSizePolicy(QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Fixed)
         self._set_table_row_heights(self.result_table)
-        inspection_layout.addWidget(self.result_table)
-
-        info_group = QtWidgets.QGroupBox("Summary")
-        form = QtWidgets.QFormLayout(info_group)
-        self.model_label = QtWidgets.QLabel(self._current_model_path())
-        self.threshold_label = QtWidgets.QLabel(f"{self._current_threshold():.2f}")
-        self.ng_label = QtWidgets.QLabel("0")
-        self.inference_label = QtWidgets.QLabel("0 ms")
-        form.addRow("Model", self.model_label)
-        form.addRow("Threshold", self.threshold_label)
-        form.addRow("NG total", self.ng_label)
-        form.addRow("Inference", self.inference_label)
-        inspection_layout.addWidget(info_group)
-
-        button_layout = QtWidgets.QHBoxLayout()
-        self.capture_button = QtWidgets.QPushButton("Capture")
-        self.load_model_button = QtWidgets.QPushButton("Load model")
-        self.open_image_button = QtWidgets.QPushButton("Open image")
-        self.run_anomaly_button = QtWidgets.QPushButton("Run anomaly")
-        self.prev_button = QtWidgets.QPushButton("Previous")
-        self.next_button = QtWidgets.QPushButton("Next")
-        button_layout.addWidget(self.capture_button)
-        button_layout.addWidget(self.load_model_button)
-        button_layout.addWidget(self.open_image_button)
-        button_layout.addWidget(self.run_anomaly_button)
-        button_layout.addWidget(self.prev_button)
-        button_layout.addWidget(self.next_button)
-        inspection_layout.addLayout(button_layout)
+        header_height = self.result_table.horizontalHeader().height()
+        table_height = header_height + (self._table_row_height * self.config.layout.count) + 4
+        self.result_table.setFixedHeight(table_height)
+        table_scroll = QtWidgets.QScrollArea()
+        table_scroll.setWidgetResizable(True)
+        table_scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
+        table_scroll.setWidget(self.result_table)
+        inspection_layout.addWidget(table_scroll)
 
         plc_tab = QtWidgets.QWidget()
         right_tabs.addTab(plc_tab, "PLC Monitor")
@@ -148,8 +170,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self.plc_monitor_error = QtWidgets.QLabel("")
         self.plc_monitor_error.setStyleSheet("color: red;")
         plc_layout.addWidget(self.plc_monitor_error)
-
-        main_layout.addStretch(1)
 
         options_menu = self.menuBar().addMenu("File")
         self.save_images_action = QtWidgets.QAction("Save processed images", self)
@@ -284,8 +304,9 @@ class MainWindow(QtWidgets.QMainWindow):
             self.result_table.setItem(row, 0, QtWidgets.QTableWidgetItem(str(patch.index)))
             self.result_table.setItem(row, 1, QtWidgets.QTableWidgetItem(f"{score:.3f}"))
             self.result_table.setItem(row, 2, QtWidgets.QTableWidgetItem(status))
+        ok_total = sum(1 for status in result.statuses if status == "OK")
+        self.ok_label.setText(str(ok_total))
         self.ng_label.setText(str(result.ng_total))
-        self.inference_label.setText(f"{result.anomaly_inference_ms:.1f} ms")
         if result.detected_circles is not None and result.expected_circles is not None:
             self.status_camera.setText(
                 f"Camera: Ready (circles {result.detected_circles}/{result.expected_circles})"
