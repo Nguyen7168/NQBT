@@ -81,10 +81,10 @@ layout:
   circle_threshold: 50
   circle_use_otsu: false
   circle_invert: false
-  ws_scale: 0.5
-  ws_dist_ratio: 0.45
-  ws_open_ksize: 3
-  ws_open_iter: 1
+  ws_scale: 0.4
+  ws_dist_ratio: 0.5
+  ws_open_ksize: 5
+  ws_open_iter: 2
   ws_bg_dilate_iter: 2
   ws_dist_mask_size: 5
   ws_min_area_px: 2000
