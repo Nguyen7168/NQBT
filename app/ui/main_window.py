@@ -140,10 +140,12 @@ class MainWindow(QtWidgets.QMainWindow):
         self.tx_done_label = QtWidgets.QLabel("-")
         self.tx_error_label = QtWidgets.QLabel("-")
         self.tx_ready_label = QtWidgets.QLabel("-")
+        self.tx_run_label = QtWidgets.QLabel("-")
         tx_form.addRow("Busy", self.tx_busy_label)
         tx_form.addRow("Done", self.tx_done_label)
         tx_form.addRow("Error", self.tx_error_label)
         tx_form.addRow("Ready", self.tx_ready_label)
+        tx_form.addRow("Run", self.tx_run_label)
         plc_layout.addWidget(tx_group)
 
         rx_group = QtWidgets.QGroupBox("RX (PLC → App)")
@@ -247,8 +249,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.worker.cycle_started.connect(lambda: self.status_camera.setText("Camera: Busy"))
         self.worker.cycle_completed.connect(self._update_ui)
         self.worker.cycle_failed.connect(self._handle_failure)
-        self.worker.camera_ready.connect(lambda: self.status_camera.setText("Camera: Ready"))
-        self.worker.camera_failed.connect(lambda msg: (self.status_camera.setText("Camera: Error"), QtWidgets.QMessageBox.critical(self, "Camera", msg)))
+        self.worker.camera_ready.connect(self._on_camera_ready)
+        self.worker.camera_failed.connect(self._on_camera_failed)
         self.save_worker.finished.connect(lambda path: self.statusBar().showMessage(f"Saved results to {path}", 3000))
         self.save_worker.failed.connect(lambda msg: self.statusBar().showMessage(f"Save failed: {msg}", 5000))
         # Keep initial status as Idle until a successful cycle completes
@@ -288,6 +290,23 @@ class MainWindow(QtWidgets.QMainWindow):
         if messages:
             QtWidgets.QMessageBox.warning(self, "Startup issues", "\n".join(messages))
             self.statusBar().showMessage("; ".join(messages), 5000)
+
+    @QtCore.pyqtSlot()
+    def _on_camera_ready(self) -> None:
+        self.status_camera.setText("Camera: Ready")
+        try:
+            self.plc.set_run(True)
+        except PLCError as exc:
+            self.statusBar().showMessage(f"Failed to set RUN ON: {exc}", 5000)
+
+    @QtCore.pyqtSlot(str)
+    def _on_camera_failed(self, message: str) -> None:
+        self.status_camera.setText("Camera: Error")
+        try:
+            self.plc.set_run(False)
+        except PLCError:
+            pass
+        QtWidgets.QMessageBox.critical(self, "Camera", message)
 
     @QtCore.pyqtSlot()
     def _handle_trigger(self) -> None:
@@ -348,6 +367,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.tx_done_label.setText("ON" if self.plc.state.done else "OFF")
             self.tx_error_label.setText("ON" if self.plc.state.error else "OFF")
             self.tx_ready_label.setText("ON" if self.plc.state.ready else "OFF")
+            self.tx_run_label.setText("ON" if self.plc.state.run else "OFF")
             results = self.plc.state.last_results
             total = self.config.layout.count
             for row in range(total):
@@ -473,6 +493,10 @@ class MainWindow(QtWidgets.QMainWindow):
             self.inspection_thread.wait(2000)
             self.save_thread.quit()
             self.save_thread.wait(2000)
+            try:
+                self.plc.set_run(False)
+            except Exception:
+                pass
             self.plc.close()
         finally:
             super().closeEvent(event)

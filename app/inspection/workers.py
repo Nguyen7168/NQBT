@@ -129,6 +129,7 @@ class InspectionWorker(QtCore.QObject):
                 if not self._camera_ready:
                     self.camera.connect()
                     self._camera_ready = True
+                self.plc.set_run(True)
                 capture = self.camera.capture()
                 LOGGER.debug("Captured image with shape %s", capture.image.shape)
                 patches, detected = self.cropper.crop_with_count(capture.image)

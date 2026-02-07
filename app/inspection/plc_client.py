@@ -25,6 +25,7 @@ class PlcHandshakeState:
     done: bool = False
     error: bool = False
     ready: bool = False
+    run: bool = False
     last_cycle_started: Optional[float] = None
     last_results: Optional[List[bool]] = None
 
@@ -322,6 +323,11 @@ class PlcController:
     def set_ready(self, value: bool) -> None:
         with self._lock:
             self._set_ready_no_lock(value)
+
+    def set_run(self, value: bool) -> None:
+        with self._lock:
+            self.client.write_bit(self.config.addr.run, value)
+            self.state.run = value
 
     def write_results(self, results: Sequence[bool]) -> None:
         self.client.write_result_bits(self.config.addr.result_bits_start_word, results)
