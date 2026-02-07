@@ -22,6 +22,7 @@ class PlcAddressConfig:
     done: str
     error: str
     ready: str
+    run: str
     trigger: str
     ack: str
     result_bits_start_word: str
