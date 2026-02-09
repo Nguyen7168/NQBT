@@ -54,6 +54,10 @@ class MainWindow(QtWidgets.QMainWindow):
             self.move(window_cfg.x, window_cfg.y)
 
     def _init_ui(self) -> None:
+        window_cfg = getattr(self.config, "window", None)
+        configured_width = window_cfg.width if window_cfg and window_cfg.width else None
+        configured_height = window_cfg.height if window_cfg and window_cfg.height else None
+
         central = QtWidgets.QWidget(self)
         self.setCentralWidget(central)
 
@@ -116,7 +120,13 @@ class MainWindow(QtWidgets.QMainWindow):
         inspection_layout.addLayout(summary_bar)
 
         self.image_label = QtWidgets.QLabel()
-        self.image_label.setMinimumSize(960, 540)
+        min_image_width = 960
+        min_image_height = 540
+        if configured_width:
+            min_image_width = min(min_image_width, max(320, int(configured_width * 0.6)))
+        if configured_height:
+            min_image_height = min(min_image_height, max(240, int(configured_height * 0.35)))
+        self.image_label.setMinimumSize(min_image_width, min_image_height)
         self.image_label.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
         self.image_label.setAlignment(QtCore.Qt.AlignCenter)
         self.image_label.setStyleSheet("background-color: #1e1e1e; border: 1px solid #555;")
@@ -219,8 +229,11 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.status_camera = QtWidgets.QLabel("Camera: Idle")
         self.status_plc = QtWidgets.QLabel(f"PLC: {self._plc_status}")
-        self.status_camera.setMinimumWidth(260)
-        self.status_plc.setMinimumWidth(260)
+        status_min_width = 260
+        if configured_width and configured_width <= 800:
+            status_min_width = 140
+        self.status_camera.setMinimumWidth(status_min_width)
+        self.status_plc.setMinimumWidth(status_min_width)
         self.statusBar().addWidget(self.status_camera)
         self.statusBar().addPermanentWidget(self.status_plc)
 
