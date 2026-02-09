@@ -67,6 +67,19 @@ class MainWindow(QtWidgets.QMainWindow):
         inspection_layout = QtWidgets.QVBoxLayout(inspection_tab)
 
         summary_bar = QtWidgets.QHBoxLayout()
+
+        overall_widget = QtWidgets.QWidget()
+        overall_layout = QtWidgets.QVBoxLayout(overall_widget)
+        overall_layout.setContentsMargins(0, 0, 0, 0)
+        overall_title = QtWidgets.QLabel("Overall")
+        self.overall_label = QtWidgets.QLabel("-")
+        self.overall_label.setMinimumWidth(170)
+        self.overall_label.setAlignment(QtCore.Qt.AlignCenter)
+        self._set_overall_status(None)
+        overall_layout.addWidget(overall_title)
+        overall_layout.addWidget(self.overall_label)
+        summary_bar.addWidget(overall_widget, stretch=1)
+
         summary_widget = QtWidgets.QWidget()
         summary_form = QtWidgets.QFormLayout(summary_widget)
         self.ok_label = QtWidgets.QLabel("0")
@@ -79,8 +92,12 @@ class MainWindow(QtWidgets.QMainWindow):
         model_layout = QtWidgets.QVBoxLayout(model_widget)
         model_title = QtWidgets.QLabel("Model")
         self.model_label = QtWidgets.QLabel(self._current_model_path())
+        speed_title = QtWidgets.QLabel("Speed")
+        self.speed_label = QtWidgets.QLabel("0.0 ms")
         model_layout.addWidget(model_title)
         model_layout.addWidget(self.model_label)
+        model_layout.addWidget(speed_title)
+        model_layout.addWidget(self.speed_label)
 
         controls_layout = QtWidgets.QGridLayout()
         self.capture_button = QtWidgets.QPushButton("Capture")
@@ -326,6 +343,10 @@ class MainWindow(QtWidgets.QMainWindow):
         ok_total = sum(1 for status in result.statuses if status == "OK")
         self.ok_label.setText(str(ok_total))
         self.ng_label.setText(str(result.ng_total))
+        expected_total = result.expected_circles if result.expected_circles is not None else self.config.layout.count
+        overall = "OK" if expected_total > 0 and len(result.statuses) == expected_total and result.ng_total == 0 else "NG"
+        self._set_overall_status(overall)
+        self.speed_label.setText(f"{result.anomaly_inference_ms:.1f} ms")
         if result.detected_circles is not None and result.expected_circles is not None:
             self.status_camera.setText(
                 f"Camera: Ready (circles {result.detected_circles}/{result.expected_circles})"
@@ -381,6 +402,23 @@ class MainWindow(QtWidgets.QMainWindow):
             self.plc_monitor_error.setText(str(exc))
         except Exception as exc:  # pragma: no cover - defensive UI guard
             self.plc_monitor_error.setText(str(exc))
+
+    def _set_overall_status(self, status: Optional[str]) -> None:
+        if status == "OK":
+            self.overall_label.setText("OK")
+            self.overall_label.setStyleSheet(
+                "background-color: #2f2f2f; color: #00E5EE; font-size: 54px; font-weight: 700; border: 1px solid #555; padding: 4px;"
+            )
+        elif status == "NG":
+            self.overall_label.setText("NG")
+            self.overall_label.setStyleSheet(
+                "background-color: #2f2f2f; color: #FF2A2A; font-size: 54px; font-weight: 700; border: 1px solid #555; padding: 4px;"
+            )
+        else:
+            self.overall_label.setText("-")
+            self.overall_label.setStyleSheet(
+                "background-color: #2f2f2f; color: #CCCCCC; font-size: 42px; font-weight: 600; border: 1px solid #555; padding: 4px;"
+            )
 
     def _set_table_row_heights(self, table: QtWidgets.QTableWidget) -> None:
         for row in range(table.rowCount()):
