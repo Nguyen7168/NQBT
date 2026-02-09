@@ -71,12 +71,10 @@ class MainWindow(QtWidgets.QMainWindow):
         overall_widget = QtWidgets.QWidget()
         overall_layout = QtWidgets.QVBoxLayout(overall_widget)
         overall_layout.setContentsMargins(0, 0, 0, 0)
-        overall_title = QtWidgets.QLabel("Overall")
         self.overall_label = QtWidgets.QLabel("-")
         self.overall_label.setMinimumWidth(170)
         self.overall_label.setAlignment(QtCore.Qt.AlignCenter)
         self._set_overall_status(None)
-        overall_layout.addWidget(overall_title)
         overall_layout.addWidget(self.overall_label)
         summary_bar.addWidget(overall_widget, stretch=1)
 
