@@ -93,7 +93,7 @@ class MainWindow(QtWidgets.QMainWindow):
         model_widget = QtWidgets.QWidget()
         model_layout = QtWidgets.QVBoxLayout(model_widget)
         model_title = QtWidgets.QLabel("Model")
-        self.model_label = QtWidgets.QLabel(self._current_model_path())
+        self.model_label = QtWidgets.QLabel(self._current_model_display_name())
         speed_title = QtWidgets.QLabel("Speed")
         self.speed_label = QtWidgets.QLabel("0.0 ms")
         model_layout.addWidget(model_title)
@@ -311,7 +311,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # Model availability
         model_path = Path(self._current_model_path())
         if not model_path.exists():
-            self.model_label.setText(f"{model_path} (missing)")
+            self.model_label.setText(f"{self._current_model_display_name()} (missing)")
             self.model_label.setStyleSheet("color: red;")
             messages.append(f"Anomaly model not found: {model_path}")
 
@@ -465,7 +465,8 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.config.models.glass.path = file_path
             else:
                 self.config.models.inp.path = file_path
-            self.model_label.setText(file_path)
+            self.model_label.setText(self._display_name_from_path(file_path))
+            self.model_label.setStyleSheet("")
             QtCore.QMetaObject.invokeMethod(
                 self.worker,
                 "reload_anomaly_model",
@@ -531,6 +532,14 @@ class MainWindow(QtWidgets.QMainWindow):
     def _current_model_path(self) -> str:
         algo = (self.config.models.algo or "INP").upper()
         return self.config.models.glass.path if algo == "GLASS" else self.config.models.inp.path
+
+    def _current_model_display_name(self) -> str:
+        return self._display_name_from_path(self._current_model_path())
+
+    def _display_name_from_path(self, model_path: str) -> str:
+        if not model_path:
+            return "-"
+        return Path(model_path).stem
 
     def closeEvent(self, event: QtGui.QCloseEvent) -> None:  # pragma: no cover - UI cleanup
         try:
