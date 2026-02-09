@@ -366,7 +366,13 @@ class GLASSInfer(nn.Module):
 def preprocess_patch(patch_bgr: np.ndarray, size: int) -> torch.Tensor:
     rgb = cv2.cvtColor(patch_bgr, cv2.COLOR_BGR2RGB)
     transform = transforms.Compose(
-        [transforms.ToPILImage(), transforms.Resize((size, size)), transforms.ToTensor(), transforms.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD)]
+        [
+            transforms.ToPILImage(),
+            transforms.Resize(size),
+            transforms.CenterCrop(size),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD),
+        ]
     )
     tensor = transform(rgb)
     return tensor
