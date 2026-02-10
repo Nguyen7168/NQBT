@@ -9,9 +9,15 @@ import cv2
 import numpy as np
 from PyQt5 import QtCore, QtGui, QtWidgets
 
-from app.config_loader import AppConfig
+from app.config_loader import AppConfig, GlassRecipeConfig
 from app.inspection.plc_client import PlcController, PLCError
-from app.inspection.workers import InspectionResult, InspectionWorker, PlcTriggerWorker, SaveWorker
+from app.inspection.workers import (
+    InspectionResult,
+    InspectionWorker,
+    PlcModelSelectWorker,
+    PlcTriggerWorker,
+    SaveWorker,
+)
 from app.utils import numpy_to_qimage
 
 LOGGER = logging.getLogger(__name__)
@@ -37,6 +43,12 @@ class MainWindow(QtWidgets.QMainWindow):
         self._plc_status = plc_status
         self._manual_images: List[np.ndarray] = []
         self._manual_index = 0
+        self._recipe_by_code: dict[int, GlassRecipeConfig] = {
+            int(recipe.code): recipe for recipe in getattr(self.config.models, "glass_recipes", [])
+        }
+        self._current_recipe_code: Optional[int] = getattr(self.config.models, "active_recipe_code", None)
+        self._pending_recipe_code: Optional[int] = None
+        self._recipe_switch_in_progress = False
         self.setWindowTitle("Bearing Inspection")
         self._apply_window_geometry()
 
@@ -273,10 +285,25 @@ class MainWindow(QtWidgets.QMainWindow):
         self.trigger_worker.triggered.connect(self._handle_trigger)
         self.trigger_worker.start()
 
+        self.model_select_worker = None
+        model_select_addr = getattr(self.config.plc.addr, "model_select_word", None)
+        if (self.config.models.algo or "INP").upper() == "GLASS" and model_select_addr and self._recipe_by_code:
+            model_poll_interval = max(self.config.plc.model_poll_interval_ms, 10) / 1000.0
+            self.model_select_worker = PlcModelSelectWorker(
+                self.plc,
+                model_select_addr,
+                poll_interval=model_poll_interval,
+                parent=self,
+            )
+            self.model_select_worker.model_code_changed.connect(self._on_plc_model_code_changed)
+            self.model_select_worker.start()
+
         self.trigger_manual.connect(self._handle_trigger)
         self.worker.cycle_started.connect(lambda: self.status_camera.setText("Camera: Busy"))
         self.worker.cycle_completed.connect(self._update_ui)
         self.worker.cycle_failed.connect(self._handle_failure)
+        self.worker.model_reloaded.connect(self._on_model_reloaded)
+        self.worker.model_reload_failed.connect(self._on_model_reload_failed)
         self.worker.camera_ready.connect(self._on_camera_ready)
         self.worker.camera_failed.connect(self._on_camera_failed)
         self.save_worker.finished.connect(lambda path: self.statusBar().showMessage(f"Saved results to {path}", 3000))
@@ -314,6 +341,18 @@ class MainWindow(QtWidgets.QMainWindow):
             self.model_label.setText(f"{self._current_model_display_name()} (missing)")
             self.model_label.setStyleSheet("color: red;")
             messages.append(f"Anomaly model not found: {model_path}")
+
+        if self._current_recipe_code is not None:
+            recipe = self._recipe_by_code.get(int(self._current_recipe_code))
+            if recipe and recipe.name:
+                self.model_label.setText(recipe.name)
+
+        model_current_addr = getattr(self.config.plc.addr, "model_current_word", None)
+        if model_current_addr and self._current_recipe_code is not None:
+            try:
+                self.plc.write_word(model_current_addr, int(self._current_recipe_code))
+            except PLCError as exc:
+                messages.append(f"Cannot write current recipe code at startup: {exc}")
 
         if messages:
             QtWidgets.QMessageBox.warning(self, "Startup issues", "\n".join(messages))
@@ -372,6 +411,9 @@ class MainWindow(QtWidgets.QMainWindow):
                 QtCore.Qt.QueuedConnection,
                 QtCore.Q_ARG(object, result),
             )
+
+        if self._pending_recipe_code is not None and not self._recipe_switch_in_progress and not self.plc.state.busy:
+            self._apply_recipe_code(self._pending_recipe_code)
 
     @QtCore.pyqtSlot(str)
     def _handle_failure(self, message: str) -> None:
@@ -474,6 +516,77 @@ class MainWindow(QtWidgets.QMainWindow):
                 QtCore.Q_ARG(str, file_path),
             )
 
+
+    @QtCore.pyqtSlot(int)
+    def _on_plc_model_code_changed(self, model_code: int) -> None:
+        if model_code == self._current_recipe_code:
+            return
+        if self.plc.state.busy or self._recipe_switch_in_progress:
+            self._pending_recipe_code = model_code
+            self.statusBar().showMessage(f"Queued model code {model_code} until cycle complete", 3000)
+            return
+        self._apply_recipe_code(model_code)
+
+    def _apply_recipe_code(self, model_code: int) -> None:
+        recipe = self._recipe_by_code.get(int(model_code))
+        if recipe is None:
+            self.statusBar().showMessage(f"Unknown model code from PLC: {model_code}", 5000)
+            try:
+                self.plc.set_error(True)
+            except PLCError:
+                pass
+            return
+        threshold = (
+            float(recipe.glass_threshold)
+            if recipe.glass_threshold is not None
+            else float(self.config.models.glass.glass_threshold)
+        )
+        self._pending_recipe_code = int(model_code)
+        self._recipe_switch_in_progress = True
+        QtCore.QMetaObject.invokeMethod(
+            self.worker,
+            "reload_anomaly_model_with_threshold",
+            QtCore.Qt.QueuedConnection,
+            QtCore.Q_ARG(str, recipe.path),
+            QtCore.Q_ARG(float, threshold),
+        )
+
+    @QtCore.pyqtSlot(str, float)
+    def _on_model_reloaded(self, model_path: str, threshold: float) -> None:
+        if self._pending_recipe_code is not None:
+            self._current_recipe_code = self._pending_recipe_code
+            self.config.models.active_recipe_code = self._current_recipe_code
+        self._recipe_switch_in_progress = False
+        recipe_name = self._display_name_from_path(model_path)
+        if self._current_recipe_code is not None:
+            recipe = self._recipe_by_code.get(int(self._current_recipe_code))
+            if recipe and recipe.name:
+                recipe_name = recipe.name
+        self.model_label.setText(recipe_name)
+        self.model_label.setStyleSheet("")
+        self.statusBar().showMessage(
+            f"Model switched: {recipe_name} (th={threshold:.3f})",
+            3000,
+        )
+        model_current_addr = getattr(self.config.plc.addr, "model_current_word", None)
+        if model_current_addr and self._current_recipe_code is not None:
+            try:
+                self.plc.write_word(model_current_addr, int(self._current_recipe_code))
+                self.plc.set_error(False)
+            except PLCError as exc:
+                self.statusBar().showMessage(f"Failed to write current model code: {exc}", 5000)
+        self._pending_recipe_code = None
+
+    @QtCore.pyqtSlot(str)
+    def _on_model_reload_failed(self, message: str) -> None:
+        self._recipe_switch_in_progress = False
+        self.statusBar().showMessage(f"Model reload failed: {message}", 5000)
+        try:
+            self.plc.set_error(True)
+        except PLCError:
+            pass
+
+
     def _open_image(self) -> None:
         paths, _ = QtWidgets.QFileDialog.getOpenFileNames(self, "Open images", "", "Images (*.png *.jpg *.bmp)")
         if paths:
@@ -547,6 +660,8 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.plc_monitor_timer.stop()
             QtCore.QMetaObject.invokeMethod(self.worker, "shutdown", QtCore.Qt.BlockingQueuedConnection)
             self.trigger_worker.stop()
+            if getattr(self, "model_select_worker", None) is not None:
+                self.model_select_worker.stop()
             self.inspection_thread.quit()
             self.inspection_thread.wait(2000)
             self.save_thread.quit()

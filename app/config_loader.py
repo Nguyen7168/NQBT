@@ -26,6 +26,8 @@ class PlcAddressConfig:
     trigger: str
     ack: str
     result_bits_start_word: str
+    model_select_word: Optional[str] = None
+    model_current_word: Optional[str] = None
 
 
 @dataclass
@@ -43,6 +45,15 @@ class PlcConfig:
     timeouts: PlcTimeoutConfig = field(default_factory=PlcTimeoutConfig)
     log_raw_response: bool = False
     trigger_poll_interval_ms: int = 50
+    model_poll_interval_ms: int = 200
+
+
+@dataclass
+class GlassRecipeConfig:
+    code: int
+    path: str
+    name: Optional[str] = None
+    glass_threshold: Optional[float] = None
 
 
 @dataclass
@@ -84,6 +95,8 @@ class ModelConfig:
     inp: InpModelConfig = field(default_factory=lambda: InpModelConfig(path=""))
     glass: GlassModelConfig = field(default_factory=lambda: GlassModelConfig(path=""))
     yolo: YoloModelConfig = field(default_factory=YoloModelConfig)
+    active_recipe_code: Optional[int] = None
+    glass_recipes: List[GlassRecipeConfig] = field(default_factory=list)
 
 
 @dataclass
@@ -185,6 +198,7 @@ def load_config(path: str | Path) -> AppConfig:
         timeouts=timeouts,
         log_raw_response=bool(plc_raw.get("log_raw_response", False)),
         trigger_poll_interval_ms=int(plc_raw.get("trigger_poll_interval_ms", 50)),
+        model_poll_interval_ms=int(plc_raw.get("model_poll_interval_ms", 200)),
     )
 
     models_raw = _require(raw, "models")
@@ -220,7 +234,15 @@ def load_config(path: str | Path) -> AppConfig:
     else:
         raise ConfigError("Missing models.inp and models.glass sections")
     yolo = YoloModelConfig(**models_raw.get("yolo", {}))
-    models = ModelConfig(algo=algo, inp=inp, glass=glass, yolo=yolo)
+    glass_recipes = [GlassRecipeConfig(**entry) for entry in models_raw.get("glass_recipes", [])]
+    models = ModelConfig(
+        algo=algo,
+        inp=inp,
+        glass=glass,
+        yolo=yolo,
+        active_recipe_code=(int(models_raw["active_recipe_code"]) if models_raw.get("active_recipe_code") is not None else None),
+        glass_recipes=glass_recipes,
+    )
 
     io_cfg = IOConfig(**raw.get("io", {}))
     layout = LayoutConfig(**_require(raw, "layout"))
