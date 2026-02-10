@@ -70,6 +70,8 @@ class InspectionWorker(QtCore.QObject):
     cycle_started = QtCore.pyqtSignal()
     cycle_completed = QtCore.pyqtSignal(InspectionResult)
     cycle_failed = QtCore.pyqtSignal(str)
+    model_reloaded = QtCore.pyqtSignal(str, float)
+    model_reload_failed = QtCore.pyqtSignal(str)
     camera_ready = QtCore.pyqtSignal()
     camera_failed = QtCore.pyqtSignal(str)
 
@@ -214,21 +216,31 @@ class InspectionWorker(QtCore.QObject):
 
     @QtCore.pyqtSlot(str)
     def reload_anomaly_model(self, model_path: str) -> None:
+        self.reload_anomaly_model_with_threshold(model_path, self.config.models.glass.glass_threshold if (self.config.models.algo or "INP").upper() == "GLASS" else self.config.models.inp.inp_threshold)
+
+    @QtCore.pyqtSlot(str, float)
+    def reload_anomaly_model_with_threshold(self, model_path: str, threshold: float) -> None:
         with self._lock:
             try:
                 # Update the current algorithm's model path
                 if (self.config.models.algo or "INP").upper() == "GLASS":
                     self.config.models.glass.path = model_path
+                    self.config.models.glass.glass_threshold = float(threshold)
+                    effective_threshold = float(self.config.models.glass.glass_threshold)
                 else:
                     self.config.models.inp.path = model_path
+                    self.config.models.inp.inp_threshold = float(threshold)
+                    effective_threshold = float(self.config.models.inp.inp_threshold)
                 # Recreate detector with updated models config
                 self.anomaly = AnomalyDetector(self.config.models)
                 self._anomaly_error = None
                 LOGGER.info("Reloaded anomaly model from %s", model_path)
+                self.model_reloaded.emit(model_path, effective_threshold)
             except Exception as exc:
                 self.anomaly = None
                 self._anomaly_error = str(exc)
                 LOGGER.error("Failed to reload anomaly model: %s", exc)
+                self.model_reload_failed.emit(str(exc))
 
     @QtCore.pyqtSlot(object)
     def run_on_image(self, image_obj: object) -> None:
@@ -415,22 +427,89 @@ class SaveWorker(QtCore.QObject):
             self.failed.emit(str(exc))
 
 
-class PlcTriggerWorker(QtCore.QThread):
-    triggered = QtCore.pyqtSignal()
 
-    def __init__(self, plc: PlcController, poll_interval: float = 0.05, parent: Optional[QtCore.QObject] = None) -> None:
+
+class PlcModelSelectWorker(QtCore.QThread):
+    model_code_changed = QtCore.pyqtSignal(int)
+
+    def __init__(
+        self,
+        plc: PlcController,
+        address: str,
+        poll_interval: float = 0.2,
+        stable_ms: int = 200,
+        parent: Optional[QtCore.QObject] = None,
+    ) -> None:
         super().__init__(parent)
         self._plc = plc
+        self._address = address
         self._poll_interval = poll_interval
+        self._stable_ms = max(int(stable_ms), 0)
         self._stopping = threading.Event()
+        self._last_emitted_value: Optional[int] = None
+        self._candidate_value: Optional[int] = None
+        self._candidate_since: float = 0.0
 
     def run(self) -> None:  # pragma: no cover - thread logic
         while not self._stopping.is_set():
             try:
-                if self._plc.client.read_bit(self._plc.config.addr.trigger):
-                    self.triggered.emit()
-                    while self._plc.client.read_bit(self._plc.config.addr.trigger) and not self._stopping.is_set():
-                        self.msleep(int(self._poll_interval * 1000))
+                value = int(self._plc.read_word(self._address))
+                now = time.time()
+                if self._candidate_value != value:
+                    self._candidate_value = value
+                    self._candidate_since = now
+                stable_ms = (now - self._candidate_since) * 1000.0
+                if self._last_emitted_value is None:
+                    self._last_emitted_value = value
+                    self.model_code_changed.emit(value)
+                elif self._candidate_value != self._last_emitted_value and stable_ms >= self._stable_ms:
+                    self._last_emitted_value = self._candidate_value
+                    self.model_code_changed.emit(self._candidate_value)
+                self.msleep(int(self._poll_interval * 1000))
+            except Exception as exc:
+                LOGGER.error("PLC model select polling failed: %s", exc)
+                self.msleep(1000)
+
+    def stop(self) -> None:  # pragma: no cover
+        self._stopping.set()
+        self.wait(1000)
+
+
+class PlcTriggerWorker(QtCore.QThread):
+    triggered = QtCore.pyqtSignal()
+
+    def __init__(
+        self,
+        plc: PlcController,
+        poll_interval: float = 0.05,
+        min_interval_ms: int = 100,
+        parent: Optional[QtCore.QObject] = None,
+    ) -> None:
+        super().__init__(parent)
+        self._plc = plc
+        self._poll_interval = poll_interval
+        self._min_interval_ms = max(int(min_interval_ms), 0)
+        self._stopping = threading.Event()
+        self._last_trigger_ts: float = 0.0
+        self._prev_state = False
+
+    def run(self) -> None:  # pragma: no cover - thread logic
+        while not self._stopping.is_set():
+            try:
+                state = self._plc.client.read_bit(self._plc.config.addr.trigger)
+                now = time.time()
+                if state and not self._prev_state:
+                    elapsed_ms = (now - self._last_trigger_ts) * 1000.0
+                    if self._last_trigger_ts == 0.0 or elapsed_ms >= self._min_interval_ms:
+                        self._last_trigger_ts = now
+                        self.triggered.emit()
+                    else:
+                        LOGGER.debug(
+                            "Ignore trigger edge due to min interval (%d ms < %d ms)",
+                            int(elapsed_ms),
+                            self._min_interval_ms,
+                        )
+                self._prev_state = state
                 self.msleep(int(self._poll_interval * 1000))
             except Exception as exc:
                 LOGGER.error("PLC trigger polling failed: %s", exc)

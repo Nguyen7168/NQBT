@@ -42,7 +42,13 @@ class BasePLCClient:
     def read_bit(self, address: str) -> bool:  # pragma: no cover
         raise NotImplementedError
 
+    def read_word(self, address: str) -> int:  # pragma: no cover
+        raise NotImplementedError
+
     def write_bit(self, address: str, value: bool) -> None:  # pragma: no cover
+        raise NotImplementedError
+
+    def write_word(self, address: str, value: int) -> None:  # pragma: no cover
         raise NotImplementedError
 
     def write_result_bits(self, start_word: str, bits: Sequence[bool]) -> None:  # pragma: no cover
@@ -54,6 +60,7 @@ class MockPLCClient(BasePLCClient):
 
     def __init__(self) -> None:
         self._bits: dict[str, bool] = {}
+        self._words: dict[str, int] = {}
 
     def connect(self) -> None:  # pragma: no cover
         LOGGER.info("Mock PLC connected")
@@ -67,6 +74,13 @@ class MockPLCClient(BasePLCClient):
     def write_bit(self, address: str, value: bool) -> None:
         LOGGER.debug("PLC bit %s <- %s", address, value)
         self._bits[address] = value
+
+    def read_word(self, address: str) -> int:
+        return int(self._words.get(address, 0))
+
+    def write_word(self, address: str, value: int) -> None:
+        LOGGER.debug("PLC word %s <- %s", address, value)
+        self._words[address] = int(value)
 
     def write_result_bits(self, start_word: str, bits: Sequence[bool]) -> None:
         LOGGER.debug("PLC write results from %s: %s", start_word, bits)
@@ -114,11 +128,15 @@ class OmronFinsTcpClient(BasePLCClient):
 
     def _parse_address(self, address: str) -> tuple[int, int]:
         # Example address W150.00
-        area = address[0]
+        raw = address.strip().upper()
+        if raw.startswith("DM"):
+            area = "D"
+            raw = "D" + raw[2:]
+        area = raw[0]
         if area not in {"W", "D"}:
             raise PLCError(f"Unsupported memory area in address {address}")
-        word = int(address[1:].split(".")[0])
-        bit = int(address.split(".")[1]) if "." in address else 0
+        word = int(raw[1:].split(".")[0])
+        bit = int(raw.split(".")[1]) if "." in raw else 0
         return word, bit
 
     def write_bit(self, address: str, value: bool) -> None:
@@ -196,6 +214,53 @@ class OmronFinsTcpClient(BasePLCClient):
         ) + bytes(payload)
         self._send(fins_cmd)
 
+    def read_word(self, address: str) -> int:
+        word, _ = self._parse_address(address)
+        fins_cmd = bytes(
+            [
+                0x80,
+                0x00,
+                0x01,
+                0x01,
+                0x01,
+                0x30,
+                0x00,
+                0x00,
+                (word >> 8) & 0xFF,
+                word & 0xFF,
+                0x00,
+                0x00,
+                0x00,
+                0x01,
+            ]
+        )
+        resp = self._send(fins_cmd)
+        if len(resp) < 2:
+            raise PLCError("Invalid word read response")
+        return int(struct.unpack(">H", resp[-2:])[0])
+
+    def write_word(self, address: str, value: int) -> None:
+        word, _ = self._parse_address(address)
+        payload = struct.pack(">H", int(value) & 0xFFFF)
+        fins_cmd = bytes(
+            [
+                0x80,
+                0x00,
+                0x02,
+                0x00,
+                0x01,
+                0x30,
+                0x00,
+                0x00,
+                (word >> 8) & 0xFF,
+                word & 0xFF,
+                0x00,
+                0x00,
+                0x01,
+            ]
+        ) + payload
+        self._send(fins_cmd)
+
 
 class AsciiTcpClient(BasePLCClient):
     """Simple ASCII TCP client using 'RD <addr>\r' and 'WR <addr> <val>\r'.
@@ -270,6 +335,25 @@ class AsciiTcpClient(BasePLCClient):
             addr = f"{prefix}{base + idx}"
             self.write_bit(addr, bit)
 
+    def read_word(self, address: str) -> int:
+        resp = self._send_cmd(f"RD {address}")
+        tokens = [token for token in resp.replace("\r", " ").split() if token]
+        if not tokens:
+            raise PLCError(f"Empty response from {address}")
+        try:
+            return int(tokens[0])
+        except ValueError:
+            upper = tokens[0].upper()
+            if upper == "OK" and len(tokens) > 1:
+                try:
+                    return int(tokens[1])
+                except ValueError as exc:
+                    raise PLCError(f"Non-integer read from {address}: {resp}") from exc
+            raise PLCError(f"Non-integer read from {address}: {resp}")
+
+    def write_word(self, address: str, value: int) -> None:
+        self._send_cmd(f"WR {address} {int(value)}")
+
 
 class PlcController:
     """High level handshake manager."""
@@ -333,6 +417,12 @@ class PlcController:
         self.client.write_result_bits(self.config.addr.result_bits_start_word, results)
         self.state.last_results = list(results)
 
+    def read_word(self, address: str) -> int:
+        return self.client.read_word(address)
+
+    def write_word(self, address: str, value: int) -> None:
+        self.client.write_word(address, int(value))
+
     def wait_for_trigger(self, poll_interval: float = 0.05) -> bool:
         start = time.time()
         while True:
@@ -344,8 +434,12 @@ class PlcController:
                 return False
             time.sleep(poll_interval)
 
-    def wait_for_ack_clear(self, poll_interval: float = 0.05) -> None:
+    def wait_for_ack_clear(self, poll_interval: float = 0.05, timeout_ms: Optional[int] = None) -> None:
+        start = time.time()
+        timeout = self.config.timeouts.ack_clear_ms if timeout_ms is None else int(timeout_ms)
         while self.client.read_bit(self.config.addr.ack):
+            if timeout > 0 and (time.time() - start) * 1000 > timeout:
+                raise PLCError("Timeout waiting for PLC ACK clear")
             time.sleep(poll_interval)
 
     def finalize_cycle(self) -> None:
