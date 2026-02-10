@@ -70,6 +70,8 @@ class InspectionWorker(QtCore.QObject):
     cycle_started = QtCore.pyqtSignal()
     cycle_completed = QtCore.pyqtSignal(InspectionResult)
     cycle_failed = QtCore.pyqtSignal(str)
+    model_reloaded = QtCore.pyqtSignal(str, float)
+    model_reload_failed = QtCore.pyqtSignal(str)
     camera_ready = QtCore.pyqtSignal()
     camera_failed = QtCore.pyqtSignal(str)
 
@@ -214,21 +216,31 @@ class InspectionWorker(QtCore.QObject):
 
     @QtCore.pyqtSlot(str)
     def reload_anomaly_model(self, model_path: str) -> None:
+        self.reload_anomaly_model_with_threshold(model_path, self.config.models.glass.glass_threshold if (self.config.models.algo or "INP").upper() == "GLASS" else self.config.models.inp.inp_threshold)
+
+    @QtCore.pyqtSlot(str, float)
+    def reload_anomaly_model_with_threshold(self, model_path: str, threshold: float) -> None:
         with self._lock:
             try:
                 # Update the current algorithm's model path
                 if (self.config.models.algo or "INP").upper() == "GLASS":
                     self.config.models.glass.path = model_path
+                    self.config.models.glass.glass_threshold = float(threshold)
+                    effective_threshold = float(self.config.models.glass.glass_threshold)
                 else:
                     self.config.models.inp.path = model_path
+                    self.config.models.inp.inp_threshold = float(threshold)
+                    effective_threshold = float(self.config.models.inp.inp_threshold)
                 # Recreate detector with updated models config
                 self.anomaly = AnomalyDetector(self.config.models)
                 self._anomaly_error = None
                 LOGGER.info("Reloaded anomaly model from %s", model_path)
+                self.model_reloaded.emit(model_path, effective_threshold)
             except Exception as exc:
                 self.anomaly = None
                 self._anomaly_error = str(exc)
                 LOGGER.error("Failed to reload anomaly model: %s", exc)
+                self.model_reload_failed.emit(str(exc))
 
     @QtCore.pyqtSlot(object)
     def run_on_image(self, image_obj: object) -> None:
@@ -413,6 +425,39 @@ class SaveWorker(QtCore.QObject):
         except Exception as exc:
             LOGGER.exception("Failed to save inspection artefacts: %s", exc)
             self.failed.emit(str(exc))
+
+
+
+
+class PlcModelSelectWorker(QtCore.QThread):
+    model_code_changed = QtCore.pyqtSignal(int)
+
+    def __init__(self, plc: PlcController, address: str, poll_interval: float = 0.2, parent: Optional[QtCore.QObject] = None) -> None:
+        super().__init__(parent)
+        self._plc = plc
+        self._address = address
+        self._poll_interval = poll_interval
+        self._stopping = threading.Event()
+        self._last_value: Optional[int] = None
+
+    def run(self) -> None:  # pragma: no cover - thread logic
+        while not self._stopping.is_set():
+            try:
+                value = int(self._plc.read_word(self._address))
+                if self._last_value is None:
+                    self._last_value = value
+                    self.model_code_changed.emit(value)
+                elif value != self._last_value:
+                    self._last_value = value
+                    self.model_code_changed.emit(value)
+                self.msleep(int(self._poll_interval * 1000))
+            except Exception as exc:
+                LOGGER.error("PLC model select polling failed: %s", exc)
+                self.msleep(1000)
+
+    def stop(self) -> None:  # pragma: no cover
+        self._stopping.set()
+        self.wait(1000)
 
 
 class PlcTriggerWorker(QtCore.QThread):
