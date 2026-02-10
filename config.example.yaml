@@ -23,8 +23,11 @@ plc:
     trigger: "M200"
     ack: "M201"
     result_bits_start_word: "R1100"
+    model_select_word: "DM1530"
+    model_current_word: "DM1524"
   log_raw_response: false
   trigger_poll_interval_ms: 50
+  model_poll_interval_ms: 200
   timeouts:
     connect_ms: 3000
     cycle_ms: 5000
@@ -40,6 +43,16 @@ models:
     path: "models/yolo.engine"
     conf_thres: 0.25
     iou_thres: 0.45
+  active_recipe_code: 1
+  glass_recipes:
+    - code: 1
+      path: "models/ITEM_A.pth"
+      name: "ITEM_A"
+      glass_threshold: 0.5
+    - code: 2
+      path: "models/ITEM_B.pth"
+      name: "ITEM_B"
+      glass_threshold: 0.5
 
 io:
   save_images: true
