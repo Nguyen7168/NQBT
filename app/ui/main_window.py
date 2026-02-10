@@ -377,6 +377,9 @@ class MainWindow(QtWidgets.QMainWindow):
 
     @QtCore.pyqtSlot()
     def _handle_trigger(self) -> None:
+        if self._recipe_switch_in_progress:
+            self.statusBar().showMessage("Model is switching, trigger ignored", 2000)
+            return
         QtCore.QMetaObject.invokeMethod(self.worker, "run_cycle", QtCore.Qt.QueuedConnection)
 
     @QtCore.pyqtSlot(InspectionResult)
@@ -557,6 +560,10 @@ class MainWindow(QtWidgets.QMainWindow):
         )
         self._pending_recipe_code = int(model_code)
         self._recipe_switch_in_progress = True
+        try:
+            self.plc.set_busy(True)
+        except PLCError as exc:
+            self.statusBar().showMessage(f"Failed to set BUSY for model switch: {exc}", 5000)
         QtCore.QMetaObject.invokeMethod(
             self.worker,
             "reload_anomaly_model_with_threshold",
@@ -589,6 +596,10 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.plc.set_error(False)
             except PLCError as exc:
                 self.statusBar().showMessage(f"Failed to write current model code: {exc}", 5000)
+        try:
+            self.plc.set_busy(False)
+        except PLCError as exc:
+            self.statusBar().showMessage(f"Failed to clear BUSY after model switch: {exc}", 5000)
         self._pending_recipe_code = None
 
     @QtCore.pyqtSlot(str)
@@ -597,6 +608,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self.statusBar().showMessage(f"Model reload failed: {message}", 5000)
         try:
             self.plc.set_error(True)
+        except PLCError:
+            pass
+        try:
+            self.plc.set_busy(False)
         except PLCError:
             pass
 

@@ -36,3 +36,11 @@ Trong `config.yaml`:
 ## Trường hợp PLC reset DM1530
 - Quy ước hiện tại: `DM1530 = 0` được hiểu là **không yêu cầu đổi model**.
 - App giữ model hiện tại, không set error, và tiếp tục phản hồi `DM1524` = mã model đang chạy.
+
+
+## App chủ động làm gì khi PLC đổi code?
+- Khi thấy DM1530 đổi (khác code hiện tại), app tự chạy luồng đổi model.
+- Trong lúc đổi model, app bật `BUSY=1`, tạm bỏ qua trigger inspection mới.
+- Khi đổi model xong (thành công/thất bại), app trả `BUSY=0`.
+- Thành công: ghi `DM1524` = code mới và clear `ERROR`.
+- Thất bại: giữ model cũ và set `ERROR`.
