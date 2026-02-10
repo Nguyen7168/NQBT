@@ -519,6 +519,20 @@ class MainWindow(QtWidgets.QMainWindow):
 
     @QtCore.pyqtSlot(int)
     def _on_plc_model_code_changed(self, model_code: int) -> None:
+        # Convention: 0 means "no selection / reset request" from PLC.
+        # Keep current model, do not raise error, and reflect current code to PLC.
+        if int(model_code) == 0:
+            self._pending_recipe_code = None
+            model_current_addr = getattr(self.config.plc.addr, "model_current_word", None)
+            if model_current_addr and self._current_recipe_code is not None:
+                try:
+                    self.plc.write_word(model_current_addr, int(self._current_recipe_code))
+                    self.plc.set_error(False)
+                except PLCError as exc:
+                    self.statusBar().showMessage(f"Failed to keep current model code: {exc}", 5000)
+            self.statusBar().showMessage("PLC model select reset (0): keep current model", 3000)
+            return
+
         if model_code == self._current_recipe_code:
             return
         if self.plc.state.busy or self._recipe_switch_in_progress:

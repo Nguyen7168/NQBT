@@ -27,3 +27,12 @@ Trong `config.yaml`:
 ## Lưu ý an toàn
 - Nếu đang chạy cycle (`busy=1`), app sẽ queue yêu cầu đổi model và áp dụng sau khi cycle kết thúc.
 - PLC nên chỉ phát trigger inspection khi đã thấy `DM1524 == DM1530`.
+
+
+## ACK cho đổi model
+- Flow đổi model bằng DM1530/DM1524 **không dùng ACK bit**.
+- ACK/DONE hiện chỉ dùng cho chu kỳ inspection (trigger chụp + xử lý).
+
+## Trường hợp PLC reset DM1530
+- Quy ước hiện tại: `DM1530 = 0` được hiểu là **không yêu cầu đổi model**.
+- App giữ model hiện tại, không set error, và tiếp tục phản hồi `DM1524` = mã model đang chạy.
