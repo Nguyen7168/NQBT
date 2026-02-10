@@ -44,3 +44,9 @@ Trong `config.yaml`:
 - Khi đổi model xong (thành công/thất bại), app trả `BUSY=0`.
 - Thành công: ghi `DM1524` = code mới và clear `ERROR`.
 - Thất bại: giữ model cũ và set `ERROR`.
+
+## Chống tín hiệu PLC rung/nhiễu liên tục
+- Trigger inspection có thêm `trigger_min_interval_ms` để bỏ các cạnh trigger quá sát nhau.
+- Trigger mới sẽ bị bỏ qua nếu app đang đổi model hoặc đã có cycle đang chạy/chờ chạy.
+- Poll DM1530 có thêm `model_stable_ms`: chỉ đổi model khi mã ổn định đủ thời gian.
+- Chờ ACK clear sau cycle có timeout `ack_clear_ms` để tránh chờ vô hạn nếu ACK bị kẹt ON.

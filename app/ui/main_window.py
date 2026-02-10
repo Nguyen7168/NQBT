@@ -49,6 +49,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self._current_recipe_code: Optional[int] = getattr(self.config.models, "active_recipe_code", None)
         self._pending_recipe_code: Optional[int] = None
         self._recipe_switch_in_progress = False
+        self._cycle_request_inflight = False
+        self._last_status_message_ts: dict[str, float] = {}
         self.setWindowTitle("Bearing Inspection")
         self._apply_window_geometry()
 
@@ -281,7 +283,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self.save_thread.start()
 
         poll_interval = max(self.config.plc.trigger_poll_interval_ms, 1) / 1000.0
-        self.trigger_worker = PlcTriggerWorker(self.plc, poll_interval=poll_interval)
+        self.trigger_worker = PlcTriggerWorker(
+            self.plc,
+            poll_interval=poll_interval,
+            min_interval_ms=self.config.plc.trigger_min_interval_ms,
+        )
         self.trigger_worker.triggered.connect(self._handle_trigger)
         self.trigger_worker.start()
 
@@ -293,13 +299,14 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.plc,
                 model_select_addr,
                 poll_interval=model_poll_interval,
+                stable_ms=self.config.plc.model_stable_ms,
                 parent=self,
             )
             self.model_select_worker.model_code_changed.connect(self._on_plc_model_code_changed)
             self.model_select_worker.start()
 
         self.trigger_manual.connect(self._handle_trigger)
-        self.worker.cycle_started.connect(lambda: self.status_camera.setText("Camera: Busy"))
+        self.worker.cycle_started.connect(self._on_cycle_started)
         self.worker.cycle_completed.connect(self._update_ui)
         self.worker.cycle_failed.connect(self._handle_failure)
         self.worker.model_reloaded.connect(self._on_model_reloaded)
@@ -378,12 +385,21 @@ class MainWindow(QtWidgets.QMainWindow):
     @QtCore.pyqtSlot()
     def _handle_trigger(self) -> None:
         if self._recipe_switch_in_progress:
-            self.statusBar().showMessage("Model is switching, trigger ignored", 2000)
+            self._show_rate_limited_status("switching_ignore", "Model is switching, trigger ignored", 1000)
             return
+        if self._cycle_request_inflight:
+            self._show_rate_limited_status("cycle_busy_ignore", "Inspection cycle already in progress, trigger ignored", 1000)
+            return
+        self._cycle_request_inflight = True
         QtCore.QMetaObject.invokeMethod(self.worker, "run_cycle", QtCore.Qt.QueuedConnection)
+
+    @QtCore.pyqtSlot()
+    def _on_cycle_started(self) -> None:
+        self.status_camera.setText("Camera: Busy")
 
     @QtCore.pyqtSlot(InspectionResult)
     def _update_ui(self, result: InspectionResult) -> None:
+        self._cycle_request_inflight = False
         pixmap = QtGui.QPixmap.fromImage(numpy_to_qimage(result.overlay_image))
         self.image_label.setPixmap(pixmap.scaled(self.image_label.size(), QtCore.Qt.KeepAspectRatio, QtCore.Qt.SmoothTransformation))
 
@@ -420,8 +436,16 @@ class MainWindow(QtWidgets.QMainWindow):
 
     @QtCore.pyqtSlot(str)
     def _handle_failure(self, message: str) -> None:
+        self._cycle_request_inflight = False
         QtWidgets.QMessageBox.critical(self, "Inspection failed", message)
         self.status_camera.setText("Camera: Error")
+
+    def _show_rate_limited_status(self, key: str, message: str, min_interval_ms: int = 1000) -> None:
+        now = QtCore.QDateTime.currentMSecsSinceEpoch() / 1000.0
+        last = self._last_status_message_ts.get(key, 0.0)
+        if (now - last) * 1000.0 >= max(0, min_interval_ms):
+            self._last_status_message_ts[key] = now
+            self.statusBar().showMessage(message, 2000)
 
     def _toggle_plc_monitor(self, enabled: bool) -> None:
         if enabled:

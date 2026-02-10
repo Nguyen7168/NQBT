@@ -434,8 +434,12 @@ class PlcController:
                 return False
             time.sleep(poll_interval)
 
-    def wait_for_ack_clear(self, poll_interval: float = 0.05) -> None:
+    def wait_for_ack_clear(self, poll_interval: float = 0.05, timeout_ms: Optional[int] = None) -> None:
+        start = time.time()
+        timeout = self.config.timeouts.ack_clear_ms if timeout_ms is None else int(timeout_ms)
         while self.client.read_bit(self.config.addr.ack):
+            if timeout > 0 and (time.time() - start) * 1000 > timeout:
+                raise PLCError("Timeout waiting for PLC ACK clear")
             time.sleep(poll_interval)
 
     def finalize_cycle(self) -> None:

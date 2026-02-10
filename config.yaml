@@ -27,10 +27,13 @@ plc:
     model_current_word: "DM1524"
   log_raw_response: false
   trigger_poll_interval_ms: 50
+  trigger_min_interval_ms: 100
   model_poll_interval_ms: 200
+  model_stable_ms: 200
   timeouts:
     connect_ms: 3000
     cycle_ms: 5000
+    ack_clear_ms: 2000
 
 models:
   algo: "GLASS"  # INP or GLASS

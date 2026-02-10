@@ -432,24 +432,39 @@ class SaveWorker(QtCore.QObject):
 class PlcModelSelectWorker(QtCore.QThread):
     model_code_changed = QtCore.pyqtSignal(int)
 
-    def __init__(self, plc: PlcController, address: str, poll_interval: float = 0.2, parent: Optional[QtCore.QObject] = None) -> None:
+    def __init__(
+        self,
+        plc: PlcController,
+        address: str,
+        poll_interval: float = 0.2,
+        stable_ms: int = 200,
+        parent: Optional[QtCore.QObject] = None,
+    ) -> None:
         super().__init__(parent)
         self._plc = plc
         self._address = address
         self._poll_interval = poll_interval
+        self._stable_ms = max(int(stable_ms), 0)
         self._stopping = threading.Event()
-        self._last_value: Optional[int] = None
+        self._last_emitted_value: Optional[int] = None
+        self._candidate_value: Optional[int] = None
+        self._candidate_since: float = 0.0
 
     def run(self) -> None:  # pragma: no cover - thread logic
         while not self._stopping.is_set():
             try:
                 value = int(self._plc.read_word(self._address))
-                if self._last_value is None:
-                    self._last_value = value
+                now = time.time()
+                if self._candidate_value != value:
+                    self._candidate_value = value
+                    self._candidate_since = now
+                stable_ms = (now - self._candidate_since) * 1000.0
+                if self._last_emitted_value is None:
+                    self._last_emitted_value = value
                     self.model_code_changed.emit(value)
-                elif value != self._last_value:
-                    self._last_value = value
-                    self.model_code_changed.emit(value)
+                elif self._candidate_value != self._last_emitted_value and stable_ms >= self._stable_ms:
+                    self._last_emitted_value = self._candidate_value
+                    self.model_code_changed.emit(self._candidate_value)
                 self.msleep(int(self._poll_interval * 1000))
             except Exception as exc:
                 LOGGER.error("PLC model select polling failed: %s", exc)
@@ -463,19 +478,38 @@ class PlcModelSelectWorker(QtCore.QThread):
 class PlcTriggerWorker(QtCore.QThread):
     triggered = QtCore.pyqtSignal()
 
-    def __init__(self, plc: PlcController, poll_interval: float = 0.05, parent: Optional[QtCore.QObject] = None) -> None:
+    def __init__(
+        self,
+        plc: PlcController,
+        poll_interval: float = 0.05,
+        min_interval_ms: int = 100,
+        parent: Optional[QtCore.QObject] = None,
+    ) -> None:
         super().__init__(parent)
         self._plc = plc
         self._poll_interval = poll_interval
+        self._min_interval_ms = max(int(min_interval_ms), 0)
         self._stopping = threading.Event()
+        self._last_trigger_ts: float = 0.0
+        self._prev_state = False
 
     def run(self) -> None:  # pragma: no cover - thread logic
         while not self._stopping.is_set():
             try:
-                if self._plc.client.read_bit(self._plc.config.addr.trigger):
-                    self.triggered.emit()
-                    while self._plc.client.read_bit(self._plc.config.addr.trigger) and not self._stopping.is_set():
-                        self.msleep(int(self._poll_interval * 1000))
+                state = self._plc.client.read_bit(self._plc.config.addr.trigger)
+                now = time.time()
+                if state and not self._prev_state:
+                    elapsed_ms = (now - self._last_trigger_ts) * 1000.0
+                    if self._last_trigger_ts == 0.0 or elapsed_ms >= self._min_interval_ms:
+                        self._last_trigger_ts = now
+                        self.triggered.emit()
+                    else:
+                        LOGGER.debug(
+                            "Ignore trigger edge due to min interval (%d ms < %d ms)",
+                            int(elapsed_ms),
+                            self._min_interval_ms,
+                        )
+                self._prev_state = state
                 self.msleep(int(self._poll_interval * 1000))
             except Exception as exc:
                 LOGGER.error("PLC trigger polling failed: %s", exc)
