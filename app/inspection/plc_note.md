@@ -215,4 +215,84 @@ TRIGGER → BUSY → XỬ LÝ AI → GHI KẾT QUẢ → DONE → PLC ACK → RE
 
 ---
 
+# 7. Giải thích tham số cấu hình PLC trong `config.yaml`
+
+Mục này dùng để đội lập trình PLC và đội app thống nhất ý nghĩa các tham số timing/debounce.
+
+```yaml
+trigger_poll_interval_ms: 50
+trigger_min_interval_ms: 100
+trigger_high_stable_ms: 80
+trigger_low_stable_ms: 80
+trigger_cooldown_ms: 300
+enable_plc_trigger: true
+model_poll_interval_ms: 200
+model_stable_ms: 200
+timeouts:
+  connect_ms: 3000
+  cycle_ms: 5000
+  ack_clear_ms: 2000
+```
+
+## 7.1 Nhóm trigger inspection
+
+### `trigger_poll_interval_ms`
+- Chu kỳ app đọc bit Trigger từ PLC (đơn vị ms).
+- Ví dụ `50` nghĩa là đọc khoảng **20 lần/giây**.
+- Giảm giá trị này sẽ bắt trigger nhanh hơn nhưng tăng tải giao tiếp PLC.
+
+### `trigger_min_interval_ms`
+- Khoảng cách tối thiểu giữa hai trigger hợp lệ liên tiếp.
+- Dùng để chặn trigger lặp quá sát nhau.
+- Trong app, tham số này kết hợp với cooldown; ngưỡng chặn thực tế lấy giá trị lớn hơn.
+
+### `trigger_high_stable_ms`
+- Bit Trigger phải giữ mức ON liên tục ít nhất thời gian này thì mới được coi là trigger hợp lệ.
+- Dùng để lọc nhiễu/xung ON quá ngắn (debounce mức cao).
+
+### `trigger_low_stable_ms`
+- Sau khi đã nhận 1 trigger, bit Trigger phải giữ OFF ổn định ít nhất thời gian này thì app mới “re-arm” để nhận trigger mới.
+- Dùng để tránh rung ON/OFF gây bắn nhiều chu kỳ.
+
+### `trigger_cooldown_ms`
+- Thời gian nghỉ tối thiểu sau 1 trigger hợp lệ trước khi cho phép trigger kế tiếp.
+- Đây là lớp bảo vệ mạnh chống auto-trigger liên tục khi tín hiệu không sạch.
+
+### `enable_plc_trigger`
+- Bật/tắt hoàn toàn luồng nhận trigger từ PLC.
+- `true`: app nhận trigger tự động từ PLC.
+- `false`: app không nhận trigger PLC (hữu ích khi debug/manual test).
+
+## 7.2 Nhóm chọn model (recipe)
+
+### `model_poll_interval_ms`
+- Chu kỳ đọc thanh ghi model code từ PLC (word chọn recipe).
+- Ví dụ `200` nghĩa là đọc mỗi 200 ms.
+
+### `model_stable_ms`
+- Giá trị model code phải ổn định liên tục trong thời gian này trước khi app xác nhận đổi model.
+- Mục tiêu là tránh đổi model do nhiễu đọc nhất thời.
+
+## 7.3 Nhóm timeout handshake
+
+### `timeouts.connect_ms`
+- Timeout kết nối TCP tới PLC khi khởi động.
+
+### `timeouts.cycle_ms`
+- Timeout tối đa cho pha chờ ACK/cycle handshake.
+- Quá thời gian này app sẽ ghi warning/timeout để tránh treo chu kỳ.
+
+### `timeouts.ack_clear_ms`
+- Timeout chờ PLC hạ ACK về OFF sau khi app finalize cycle.
+- Dùng để đảm bảo hệ thống quay về trạng thái sẵn sàng cho chu kỳ tiếp theo.
+
+## 7.4 Khuyến nghị nhanh cho đội PLC
+
+- Trigger nên là bit sạch, có xung ON đủ dài hơn `trigger_high_stable_ms`.
+- Sau khi app nhận trigger, PLC nên hạ Trigger rõ ràng và giữ OFF đủ lâu (`trigger_low_stable_ms`).
+- Nếu gặp auto-trigger ngoài ý muốn, tăng `trigger_cooldown_ms` trước rồi mới tinh chỉnh stable time.
+- Khi test không muốn chạy tự động theo PLC, đặt `enable_plc_trigger: false`.
+
+---
+
 # ✔ Kết thúc tài liệu

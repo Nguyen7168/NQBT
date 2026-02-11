@@ -47,6 +47,10 @@ class PlcConfig:
     log_raw_response: bool = False
     trigger_poll_interval_ms: int = 50
     trigger_min_interval_ms: int = 100
+    trigger_high_stable_ms: int = 80
+    trigger_low_stable_ms: int = 80
+    trigger_cooldown_ms: int = 300
+    enable_plc_trigger: bool = True
     model_poll_interval_ms: int = 200
     model_stable_ms: int = 200
 
@@ -202,6 +206,10 @@ def load_config(path: str | Path) -> AppConfig:
         log_raw_response=bool(plc_raw.get("log_raw_response", False)),
         trigger_poll_interval_ms=int(plc_raw.get("trigger_poll_interval_ms", 50)),
         trigger_min_interval_ms=int(plc_raw.get("trigger_min_interval_ms", 100)),
+        trigger_high_stable_ms=int(plc_raw.get("trigger_high_stable_ms", 80)),
+        trigger_low_stable_ms=int(plc_raw.get("trigger_low_stable_ms", 80)),
+        trigger_cooldown_ms=int(plc_raw.get("trigger_cooldown_ms", 300)),
+        enable_plc_trigger=bool(plc_raw.get("enable_plc_trigger", True)),
         model_poll_interval_ms=int(plc_raw.get("model_poll_interval_ms", 200)),
         model_stable_ms=int(plc_raw.get("model_stable_ms", 200)),
     )
