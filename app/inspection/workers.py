@@ -483,33 +483,59 @@ class PlcTriggerWorker(QtCore.QThread):
         plc: PlcController,
         poll_interval: float = 0.05,
         min_interval_ms: int = 100,
+        high_stable_ms: int = 80,
+        low_stable_ms: int = 80,
+        cooldown_ms: int = 300,
         parent: Optional[QtCore.QObject] = None,
     ) -> None:
         super().__init__(parent)
         self._plc = plc
         self._poll_interval = poll_interval
         self._min_interval_ms = max(int(min_interval_ms), 0)
+        self._high_stable_ms = max(int(high_stable_ms), 0)
+        self._low_stable_ms = max(int(low_stable_ms), 0)
+        self._cooldown_ms = max(int(cooldown_ms), 0)
         self._stopping = threading.Event()
         self._last_trigger_ts: float = 0.0
-        self._prev_state = False
+        self._armed = True
+        self._high_since: Optional[float] = None
+        self._low_since: Optional[float] = time.time()
+
+    def _can_emit(self, now: float) -> bool:
+        elapsed_ms = (now - self._last_trigger_ts) * 1000.0
+        required_ms = max(self._min_interval_ms, self._cooldown_ms)
+        if self._last_trigger_ts == 0.0 or elapsed_ms >= required_ms:
+            return True
+        LOGGER.debug(
+            "Ignore trigger due to cooldown (%d ms < %d ms)",
+            int(elapsed_ms),
+            required_ms,
+        )
+        return False
 
     def run(self) -> None:  # pragma: no cover - thread logic
         while not self._stopping.is_set():
             try:
                 state = self._plc.client.read_bit(self._plc.config.addr.trigger)
                 now = time.time()
-                if state and not self._prev_state:
-                    elapsed_ms = (now - self._last_trigger_ts) * 1000.0
-                    if self._last_trigger_ts == 0.0 or elapsed_ms >= self._min_interval_ms:
+
+                if state:
+                    self._low_since = None
+                    if self._high_since is None:
+                        self._high_since = now
+                    high_ms = (now - self._high_since) * 1000.0
+                    if self._armed and high_ms >= self._high_stable_ms and self._can_emit(now):
                         self._last_trigger_ts = now
+                        self._armed = False
                         self.triggered.emit()
-                    else:
-                        LOGGER.debug(
-                            "Ignore trigger edge due to min interval (%d ms < %d ms)",
-                            int(elapsed_ms),
-                            self._min_interval_ms,
-                        )
-                self._prev_state = state
+                else:
+                    self._high_since = None
+                    if self._low_since is None:
+                        self._low_since = now
+                    low_ms = (now - self._low_since) * 1000.0
+                    if not self._armed and low_ms >= self._low_stable_ms:
+                        self._armed = True
+
                 self.msleep(int(self._poll_interval * 1000))
             except Exception as exc:
                 LOGGER.error("PLC trigger polling failed: %s", exc)

@@ -285,14 +285,19 @@ class MainWindow(QtWidgets.QMainWindow):
         self.save_worker.moveToThread(self.save_thread)
         self.save_thread.start()
 
-        poll_interval = max(self.config.plc.trigger_poll_interval_ms, 1) / 1000.0
-        self.trigger_worker = PlcTriggerWorker(
-            self.plc,
-            poll_interval=poll_interval,
-            min_interval_ms=self.config.plc.trigger_min_interval_ms,
-        )
-        self.trigger_worker.triggered.connect(self._handle_trigger)
-        self.trigger_worker.start()
+        self.trigger_worker = None
+        if self.config.plc.enable_plc_trigger:
+            poll_interval = max(self.config.plc.trigger_poll_interval_ms, 1) / 1000.0
+            self.trigger_worker = PlcTriggerWorker(
+                self.plc,
+                poll_interval=poll_interval,
+                min_interval_ms=self.config.plc.trigger_min_interval_ms,
+                high_stable_ms=self.config.plc.trigger_high_stable_ms,
+                low_stable_ms=self.config.plc.trigger_low_stable_ms,
+                cooldown_ms=self.config.plc.trigger_cooldown_ms,
+            )
+            self.trigger_worker.triggered.connect(self._handle_trigger)
+            self.trigger_worker.start()
 
         self.model_select_worker = None
         model_select_addr = getattr(self.config.plc.addr, "model_select_word", None)
@@ -730,7 +735,8 @@ class MainWindow(QtWidgets.QMainWindow):
             if hasattr(self, "plc_monitor_timer"):
                 self.plc_monitor_timer.stop()
             QtCore.QMetaObject.invokeMethod(self.worker, "shutdown", QtCore.Qt.BlockingQueuedConnection)
-            self.trigger_worker.stop()
+            if self.trigger_worker is not None:
+                self.trigger_worker.stop()
             if getattr(self, "model_select_worker", None) is not None:
                 self.model_select_worker.stop()
             self.inspection_thread.quit()

@@ -28,6 +28,10 @@ plc:
   log_raw_response: false
   trigger_poll_interval_ms: 50
   trigger_min_interval_ms: 100
+  trigger_high_stable_ms: 80
+  trigger_low_stable_ms: 80
+  trigger_cooldown_ms: 300
+  enable_plc_trigger: true
   model_poll_interval_ms: 200
   model_stable_ms: 200
   timeouts:
