@@ -51,6 +51,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._recipe_switch_in_progress = False
         self._cycle_request_inflight = False
         self._last_status_message_ts: dict[str, float] = {}
+        self._display_image: Optional[QtGui.QImage] = None
         self.setWindowTitle("Bearing Inspection")
         self._apply_window_geometry()
 
@@ -144,7 +145,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.image_label.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
         self.image_label.setAlignment(QtCore.Qt.AlignCenter)
         self.image_label.setStyleSheet("background-color: #1e1e1e; border: 1px solid #555;")
-        inspection_layout.addWidget(self.image_label)
+        inspection_layout.addWidget(self.image_label, stretch=7)
 
         self.result_table = QtWidgets.QTableWidget(0, 3)
         self.result_table.setHorizontalHeaderLabels(["Index", "Score", "Status"])
@@ -161,8 +162,10 @@ class MainWindow(QtWidgets.QMainWindow):
         table_scroll = QtWidgets.QScrollArea()
         table_scroll.setWidgetResizable(True)
         table_scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
+        table_scroll.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
+        table_scroll.setFixedHeight(table_height + 2)
         table_scroll.setWidget(self.result_table)
-        inspection_layout.addWidget(table_scroll)
+        inspection_layout.addWidget(table_scroll, stretch=0)
 
         plc_tab = QtWidgets.QWidget()
         right_tabs.addTab(plc_tab, "PLC Monitor")
@@ -400,8 +403,7 @@ class MainWindow(QtWidgets.QMainWindow):
     @QtCore.pyqtSlot(InspectionResult)
     def _update_ui(self, result: InspectionResult) -> None:
         self._cycle_request_inflight = False
-        pixmap = QtGui.QPixmap.fromImage(numpy_to_qimage(result.overlay_image))
-        self.image_label.setPixmap(pixmap.scaled(self.image_label.size(), QtCore.Qt.KeepAspectRatio, QtCore.Qt.SmoothTransformation))
+        self._set_display_image(numpy_to_qimage(result.overlay_image))
 
         self.result_table.setRowCount(len(result.patches))
         self._set_table_row_heights(self.result_table)
@@ -662,8 +664,24 @@ class MainWindow(QtWidgets.QMainWindow):
         if not getattr(self, "_manual_images", None):
             return
         image = self._manual_images[self._manual_index]
-        pixmap = QtGui.QPixmap.fromImage(numpy_to_qimage(image))
-        self.image_label.setPixmap(pixmap.scaled(self.image_label.size(), QtCore.Qt.KeepAspectRatio, QtCore.Qt.SmoothTransformation))
+        self._set_display_image(numpy_to_qimage(image))
+
+    def _set_display_image(self, image: QtGui.QImage) -> None:
+        self._display_image = image
+        self._redraw_display_image()
+
+    def _redraw_display_image(self) -> None:
+        if self._display_image is None:
+            return
+        if self.image_label.width() <= 0 or self.image_label.height() <= 0:
+            return
+        pixmap = QtGui.QPixmap.fromImage(self._display_image)
+        scaled = pixmap.scaled(
+            self.image_label.size(),
+            QtCore.Qt.KeepAspectRatio,
+            QtCore.Qt.SmoothTransformation,
+        )
+        self.image_label.setPixmap(scaled)
 
     def _next_image(self) -> None:
         if getattr(self, "_manual_images", None):
@@ -726,3 +744,8 @@ class MainWindow(QtWidgets.QMainWindow):
             self.plc.close()
         finally:
             super().closeEvent(event)
+
+    def resizeEvent(self, event: QtGui.QResizeEvent) -> None:
+        super().resizeEvent(event)
+        self._redraw_display_image()
+
