@@ -1,5 +1,5 @@
 camera:
-  serial: null
+  serial: 40736983
   exposure_us: 8000
   gain: 0
   pixel_format: "BayerRG8"
@@ -7,7 +7,7 @@ camera:
 window:
   x: 0
   y: 0
-  width: 1400
+  width: 640
   height: 900
 
 plc:
@@ -26,9 +26,9 @@ plc:
     model_select_word: "DM1530"
     model_current_word: "DM1524"
   log_raw_response: false
-  trigger_poll_interval_ms: 50
+  trigger_poll_interval_ms: 10
   trigger_min_interval_ms: 100
-  trigger_high_stable_ms: 80
+  trigger_high_stable_ms: 40
   trigger_low_stable_ms: 80
   trigger_cooldown_ms: 300
   enable_plc_trigger: true
@@ -69,8 +69,8 @@ models:
   glass_recipes:
     - code: 1
       path: "app/models/gls_epoch_124_loss_0_1330_271img.pth"
-      name: "ITEM_1"
-      glass_threshold: 0.5
+      name: "23-233HA-E"
+      glass_threshold: 0.98
     - code: 2
       path: "app/models/gls_epoch_124_loss_0_1330_271img.pth"
       name: "ITEM_2"
