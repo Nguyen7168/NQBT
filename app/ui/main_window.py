@@ -14,6 +14,8 @@ from app.inspection.plc_client import PlcController, PLCError
 from app.inspection.workers import (
     InspectionResult,
     InspectionWorker,
+    OperatingMode,
+    PlcModeSelectWorker,
     PlcModelSelectWorker,
     PlcTriggerWorker,
     SaveWorker,
@@ -50,6 +52,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self._pending_recipe_code: Optional[int] = None
         self._recipe_switch_in_progress = False
         self._cycle_request_inflight = False
+        self._current_mode = OperatingMode.RUN
+        self._requested_mode = OperatingMode.RUN
         self._last_status_message_ts: dict[str, float] = {}
         self._display_image: Optional[QtGui.QImage] = None
         self.setWindowTitle("Bearing Inspection")
@@ -111,10 +115,13 @@ class MainWindow(QtWidgets.QMainWindow):
         self.model_label = QtWidgets.QLabel(self._current_model_display_name())
         speed_title = QtWidgets.QLabel("Speed")
         self.speed_label = QtWidgets.QLabel("0.0 ms")
+        self.mode_label = QtWidgets.QLabel("RUN")
         model_layout.addWidget(model_title)
         model_layout.addWidget(self.model_label)
         model_layout.addWidget(speed_title)
         model_layout.addWidget(self.speed_label)
+        model_layout.addWidget(QtWidgets.QLabel("Mode"))
+        model_layout.addWidget(self.mode_label)
 
         controls_layout = QtWidgets.QGridLayout()
         self.capture_button = QtWidgets.QPushButton("Capture")
@@ -299,6 +306,36 @@ class MainWindow(QtWidgets.QMainWindow):
             self.trigger_worker.triggered.connect(self._handle_trigger)
             self.trigger_worker.start()
 
+        self.mode_select_worker = None
+        mode_addr = getattr(self.config.plc.addr, "mode_request_word", None)
+        if mode_addr:
+            mode_poll_interval = max(self.config.plc.model_poll_interval_ms, 10) / 1000.0
+            self.mode_select_worker = PlcModeSelectWorker(
+                self.plc,
+                mode_addr,
+                poll_interval=mode_poll_interval,
+                stable_ms=self.config.plc.model_stable_ms,
+                parent=self,
+            )
+            self.mode_select_worker.mode_changed.connect(self._on_plc_mode_changed)
+            self.mode_select_worker.start()
+
+        self.sample_trigger_worker = None
+        sample_trigger_addr = getattr(self.config.plc.addr, "sample_trigger", None)
+        if sample_trigger_addr:
+            sample_poll_interval = max(self.config.plc.sample_trigger_poll_interval_ms, 1) / 1000.0
+            self.sample_trigger_worker = PlcTriggerWorker(
+                self.plc,
+                trigger_address=sample_trigger_addr,
+                poll_interval=sample_poll_interval,
+                min_interval_ms=self.config.plc.trigger_min_interval_ms,
+                high_stable_ms=self.config.plc.trigger_high_stable_ms,
+                low_stable_ms=self.config.plc.trigger_low_stable_ms,
+                cooldown_ms=self.config.plc.trigger_cooldown_ms,
+            )
+            self.sample_trigger_worker.triggered.connect(self._handle_sample_trigger)
+            self.sample_trigger_worker.start()
+
         self.model_select_worker = None
         model_select_addr = getattr(self.config.plc.addr, "model_select_word", None)
         if (self.config.models.algo or "INP").upper() == "GLASS" and model_select_addr and self._recipe_by_code:
@@ -369,6 +406,8 @@ class MainWindow(QtWidgets.QMainWindow):
             except PLCError as exc:
                 messages.append(f"Cannot write current recipe code at startup: {exc}")
 
+        self._write_mode_current()
+
         if messages:
             QtWidgets.QMessageBox.warning(self, "Startup issues", "\n".join(messages))
             self.statusBar().showMessage("; ".join(messages), 5000)
@@ -390,8 +429,7 @@ class MainWindow(QtWidgets.QMainWindow):
             pass
         QtWidgets.QMessageBox.critical(self, "Camera", message)
 
-    @QtCore.pyqtSlot()
-    def _handle_trigger(self) -> None:
+    def _start_cycle_method(self, method_name: str, *args: object) -> None:
         if self._recipe_switch_in_progress:
             self._show_rate_limited_status("switching_ignore", "Model is switching, trigger ignored", 1000)
             return
@@ -399,11 +437,58 @@ class MainWindow(QtWidgets.QMainWindow):
             self._show_rate_limited_status("cycle_busy_ignore", "Inspection cycle already in progress, trigger ignored", 1000)
             return
         self._cycle_request_inflight = True
-        QtCore.QMetaObject.invokeMethod(self.worker, "run_cycle", QtCore.Qt.QueuedConnection)
+        if args:
+            QtCore.QMetaObject.invokeMethod(
+                self.worker,
+                method_name,
+                QtCore.Qt.QueuedConnection,
+                *[QtCore.Q_ARG(type(arg), arg) for arg in args],
+            )
+        else:
+            QtCore.QMetaObject.invokeMethod(self.worker, method_name, QtCore.Qt.QueuedConnection)
+
+    def _pick_sample_image(self) -> Optional[str]:
+        recipe = self._recipe_by_code.get(int(self._current_recipe_code or 0))
+        product_code = recipe.name if recipe and recipe.name else str(self._current_recipe_code or "")
+        product_code = (product_code or "").strip()
+        if not product_code:
+            return None
+        sample_dir = Path(self.config.sample_image_root) / product_code
+        if not sample_dir.exists():
+            return None
+        images = sorted(sample_dir.glob("*.png"))
+        if not images:
+            return None
+        idx = int(QtCore.QDateTime.currentMSecsSinceEpoch()) % len(images)
+        return str(images[idx])
+
+    @QtCore.pyqtSlot()
+    def _handle_trigger(self) -> None:
+        if self._current_mode == OperatingMode.MIRROR:
+            self._start_cycle_method("run_mirror_cycle")
+            return
+        if self._current_mode == OperatingMode.SAMPLE:
+            sample_path = self._pick_sample_image()
+            if not sample_path:
+                self.statusBar().showMessage("Warning: không tìm thấy hình ảnh mẫu", 3000)
+                return
+            self._start_cycle_method("run_sample_cycle", sample_path)
+            return
+        self._start_cycle_method("run_cycle")
+
+    @QtCore.pyqtSlot()
+    def _handle_sample_trigger(self) -> None:
+        if self._current_mode != OperatingMode.SAMPLE:
+            return
+        sample_path = self._pick_sample_image()
+        if not sample_path:
+            self.statusBar().showMessage("Warning: không tìm thấy hình ảnh mẫu", 3000)
+            return
+        self._start_cycle_method("run_sample_cycle", sample_path)
 
     @QtCore.pyqtSlot()
     def _on_cycle_started(self) -> None:
-        self.status_camera.setText("Camera: Busy")
+        self.status_camera.setText(f"Camera: Busy ({self._current_mode.name})")
 
     @QtCore.pyqtSlot(InspectionResult)
     def _update_ui(self, result: InspectionResult) -> None:
@@ -440,12 +525,14 @@ class MainWindow(QtWidgets.QMainWindow):
 
         if self._pending_recipe_code is not None and not self._recipe_switch_in_progress and not self.plc.state.busy:
             self._apply_recipe_code(self._pending_recipe_code)
+        self._apply_requested_mode_if_idle()
 
     @QtCore.pyqtSlot(str)
     def _handle_failure(self, message: str) -> None:
         self._cycle_request_inflight = False
         QtWidgets.QMessageBox.critical(self, "Inspection failed", message)
         self.status_camera.setText("Camera: Error")
+        self._apply_requested_mode_if_idle()
 
     def _show_rate_limited_status(self, key: str, message: str, min_interval_ms: int = 1000) -> None:
         now = QtCore.QDateTime.currentMSecsSinceEpoch() / 1000.0
@@ -453,6 +540,36 @@ class MainWindow(QtWidgets.QMainWindow):
         if (now - last) * 1000.0 >= max(0, min_interval_ms):
             self._last_status_message_ts[key] = now
             self.statusBar().showMessage(message, 2000)
+
+    def _write_mode_current(self) -> None:
+        mode_current_addr = getattr(self.config.plc.addr, "mode_current_word", None)
+        if not mode_current_addr:
+            return
+        try:
+            self.plc.write_word(mode_current_addr, int(self._current_mode))
+        except PLCError as exc:
+            self.statusBar().showMessage(f"Failed to write mode current: {exc}", 5000)
+
+    def _set_mode(self, mode: OperatingMode) -> None:
+        self._current_mode = mode
+        self.mode_label.setText(mode.name)
+        self._write_mode_current()
+
+    def _apply_requested_mode_if_idle(self) -> None:
+        if self._cycle_request_inflight or self.plc.state.busy:
+            return
+        if self._requested_mode != self._current_mode:
+            self._set_mode(self._requested_mode)
+
+    @QtCore.pyqtSlot(int)
+    def _on_plc_mode_changed(self, mode_value: int) -> None:
+        mode_map = {1: OperatingMode.RUN, 2: OperatingMode.SAMPLE, 3: OperatingMode.MIRROR}
+        target = mode_map.get(int(mode_value), OperatingMode.RUN)
+        self._requested_mode = target
+        if self._cycle_request_inflight or self.plc.state.busy:
+            self.statusBar().showMessage(f"Queued mode {target.name} until cycle complete", 3000)
+            return
+        self._set_mode(target)
 
     def _toggle_plc_monitor(self, enabled: bool) -> None:
         if enabled:
@@ -737,6 +854,10 @@ class MainWindow(QtWidgets.QMainWindow):
             QtCore.QMetaObject.invokeMethod(self.worker, "shutdown", QtCore.Qt.BlockingQueuedConnection)
             if self.trigger_worker is not None:
                 self.trigger_worker.stop()
+            if getattr(self, "sample_trigger_worker", None) is not None:
+                self.sample_trigger_worker.stop()
+            if getattr(self, "mode_select_worker", None) is not None:
+                self.mode_select_worker.stop()
             if getattr(self, "model_select_worker", None) is not None:
                 self.model_select_worker.stop()
             self.inspection_thread.quit()
