@@ -115,10 +115,13 @@ class MainWindow(QtWidgets.QMainWindow):
         self.model_label = QtWidgets.QLabel(self._current_model_display_name())
         speed_title = QtWidgets.QLabel("Speed")
         self.speed_label = QtWidgets.QLabel("0.0 ms")
+        self.mode_label = QtWidgets.QLabel("RUN")
         model_layout.addWidget(model_title)
         model_layout.addWidget(self.model_label)
         model_layout.addWidget(speed_title)
         model_layout.addWidget(self.speed_label)
+        model_layout.addWidget(QtWidgets.QLabel("Mode"))
+        model_layout.addWidget(self.mode_label)
 
         controls_layout = QtWidgets.QGridLayout()
         self.capture_button = QtWidgets.QPushButton("Capture")
