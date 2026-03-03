@@ -8,6 +8,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from enum import IntEnum
 from typing import Dict, List, Optional, Sequence
 
 import cv2
@@ -21,8 +22,19 @@ from app.inspection.plc_client import PlcController
 from app.models.anomaly import AnomalyDetector
 from app.models.yolo import YoloDetector, YoloResult
 from app.utils import ensure_dir, save_image
+try:
+    from kiem_guong import draw_overlay, find_outer_circle_from_edges
+except Exception:  # pragma: no cover - optional mirror module
+    draw_overlay = None  # type: ignore
+    find_outer_circle_from_edges = None  # type: ignore
 
 LOGGER = logging.getLogger(__name__)
+
+
+class OperatingMode(IntEnum):
+    RUN = 1
+    SAMPLE = 2
+    MIRROR = 3
 
 
 @dataclass
@@ -74,6 +86,7 @@ class InspectionWorker(QtCore.QObject):
     model_reload_failed = QtCore.pyqtSignal(str)
     camera_ready = QtCore.pyqtSignal()
     camera_failed = QtCore.pyqtSignal(str)
+    mirror_test_completed = QtCore.pyqtSignal(object, float, bool)
 
     def __init__(
         self,
@@ -122,74 +135,77 @@ class InspectionWorker(QtCore.QObject):
                 LOGGER.error("Camera connection failed: %s", exc)
                 self.camera_failed.emit(str(exc))
 
+    def _ensure_camera_ready(self) -> None:
+        if not self._camera_ready:
+            self.camera.connect()
+            self._camera_ready = True
+
+    def _build_result_from_image(self, image: np.ndarray) -> InspectionResult:
+        patches, detected = self.cropper.crop_with_count(image)
+        expected = self.config.layout.count
+        if self.anomaly is None:
+            raise RuntimeError(
+                f"Anomaly model not available: {self._anomaly_error or 'unknown error'}"
+            )
+        anomaly = self.anomaly.infer([p.image for p in patches]) if patches else None
+        algo = (self.config.models.algo or "INP").upper()
+        if algo == "GLASS":
+            threshold = float(self.config.models.glass.glass_threshold)
+            model_path = self.config.models.glass.path
+        else:
+            threshold = float(self.config.models.inp.inp_threshold)
+            model_path = self.config.models.inp.path
+        statuses = (["OK" if score <= threshold else "NG" for score in anomaly.scores] if anomaly is not None else [])
+        ng_total = sum(1 for status in statuses if status == "NG")
+
+        yolo_result = None
+        if self.yolo is not None:
+            try:
+                yolo_result = self.yolo.detect(image)
+            except Exception as exc:
+                LOGGER.error("YOLO inference failed: %s", exc)
+
+        overlay = self._build_overlay(image, patches, statuses, yolo_result)
+        return InspectionResult(
+            raw_image=image,
+            overlay_image=overlay,
+            patches=patches,
+            anomaly_scores=anomaly.scores if anomaly is not None else [],
+            statuses=statuses,
+            ng_total=ng_total,
+            anomaly_inference_ms=anomaly.inference_ms if anomaly is not None else 0.0,
+            yolo_result=yolo_result,
+            timestamp=time.time(),
+            model_path=model_path,
+            threshold=threshold,
+            anomaly_maps=anomaly.maps if anomaly is not None else None,
+            detected_circles=detected,
+            expected_circles=expected,
+        )
+
+    def _run_standard_cycle(self, image: np.ndarray) -> InspectionResult:
+        result = self._build_result_from_image(image)
+        mismatch = result.detected_circles != result.expected_circles
+        if mismatch:
+            expected = result.expected_circles or self.config.layout.count
+            LOGGER.warning("Circle detection mismatch: detected %s, expected %s", result.detected_circles, expected)
+            self.plc.write_results([False] * expected)
+        else:
+            self.plc.write_results([status == "OK" for status in result.statuses])
+        self.plc.set_error(False)
+        return result
+
     @QtCore.pyqtSlot()
     def run_cycle(self) -> None:
         with self._lock:
             try:
                 self.cycle_started.emit()
                 self.plc.set_busy(True)
-                if not self._camera_ready:
-                    self.camera.connect()
-                    self._camera_ready = True
+                self._ensure_camera_ready()
                 self.plc.set_run(True)
                 capture = self.camera.capture()
                 LOGGER.debug("Captured image with shape %s", capture.image.shape)
-                patches, detected = self.cropper.crop_with_count(capture.image)
-                expected = self.config.layout.count
-                mismatch = detected != expected
-                if self.anomaly is None:
-                    raise RuntimeError(
-                        f"Anomaly model not available: {self._anomaly_error or 'unknown error'}"
-                    )
-                anomaly = None
-                if patches:
-                    anomaly = self.anomaly.infer([p.image for p in patches])
-                algo = (self.config.models.algo or "INP").upper()
-                if algo == "GLASS":
-                    threshold = float(self.config.models.glass.glass_threshold)
-                    model_path = self.config.models.glass.path
-                else:
-                    threshold = float(self.config.models.inp.inp_threshold)
-                    model_path = self.config.models.inp.path
-                statuses = (
-                    ["OK" if score <= threshold else "NG" for score in anomaly.scores]
-                    if anomaly is not None
-                    else []
-                )
-                ng_total = sum(1 for status in statuses if status == "NG")
-
-                yolo_result = None
-                if self.yolo is not None:
-                    try:
-                        yolo_result = self.yolo.detect(capture.image)
-                    except Exception as exc:
-                        LOGGER.error("YOLO inference failed: %s", exc)
-
-                overlay = self._build_overlay(capture.image, patches, statuses, yolo_result)
-                result = InspectionResult(
-                    raw_image=capture.image,
-                    overlay_image=overlay,
-                    patches=patches,
-                    anomaly_scores=anomaly.scores if anomaly is not None else [],
-                    statuses=statuses,
-                    ng_total=ng_total,
-                    anomaly_inference_ms=anomaly.inference_ms if anomaly is not None else 0.0,
-                    yolo_result=yolo_result,
-                    timestamp=time.time(),
-                    model_path=model_path,
-                    threshold=threshold,
-                    anomaly_maps=anomaly.maps if anomaly is not None else None,
-                    detected_circles=detected,
-                    expected_circles=expected,
-                )
-
-                if mismatch:
-                    LOGGER.warning("Circle detection mismatch: detected %s, expected %s", detected, expected)
-                    self.plc.write_results([False] * expected)
-                    self.plc.set_error(False)
-                else:
-                    self.plc.write_results([status == "OK" for status in statuses])
-                    self.plc.set_error(False)
+                result = self._run_standard_cycle(capture.image)
                 self.plc.set_done(True)
                 self.cycle_completed.emit(result)
             except Exception as exc:
@@ -197,6 +213,117 @@ class InspectionWorker(QtCore.QObject):
                 try:
                     self.plc.write_results([False] * self.config.layout.count)
                     self.plc.set_error(True)
+                    self.plc.set_done(True)
+                finally:
+                    self.cycle_failed.emit(str(exc))
+            finally:
+                try:
+                    self.plc.finalize_cycle()
+                except Exception:
+                    LOGGER.exception("Finalize cycle failed")
+
+    @QtCore.pyqtSlot(str)
+    def run_sample_cycle(self, sample_image_path: str) -> None:
+        with self._lock:
+            try:
+                self.cycle_started.emit()
+                self.plc.set_busy(True)
+                image = cv2.imread(sample_image_path)
+                if image is None:
+                    raise RuntimeError(f"Cannot read sample image: {sample_image_path}")
+                LOGGER.info("Running sample cycle using image: %s", sample_image_path)
+                result = self._run_standard_cycle(image)
+                self.plc.set_done(True)
+                self.cycle_completed.emit(result)
+            except Exception as exc:
+                LOGGER.exception("Sample cycle failed: %s", exc)
+                try:
+                    self.plc.write_results([False] * self.config.layout.count)
+                    self.plc.set_error(True)
+                    self.plc.set_done(True)
+                finally:
+                    self.cycle_failed.emit(str(exc))
+            finally:
+                try:
+                    self.plc.finalize_cycle()
+                except Exception:
+                    LOGGER.exception("Finalize cycle failed")
+
+    def _measure_mirror(self, image: np.ndarray) -> tuple[np.ndarray, float, bool]:
+        if find_outer_circle_from_edges is None:
+            raise RuntimeError("Mirror module unavailable: kiem_guong.py not found")
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        blur_kernel = max(1, int(self.config.mirror_blur_kernel))
+        if blur_kernel % 2 == 0:
+            blur_kernel += 1
+        blur = cv2.GaussianBlur(gray, (blur_kernel, blur_kernel), 0)
+        edges = cv2.Canny(blur, int(self.config.mirror_canny_threshold1), int(self.config.mirror_canny_threshold2))
+        result_circle, _ = find_outer_circle_from_edges(edges, min_contour_area=float(self.config.mirror_min_contour_area))
+        diameter = float(2.0 * result_circle.radius)
+        is_ok = float(self.config.mirror_diameter_min) <= diameter <= float(self.config.mirror_diameter_max)
+        if draw_overlay is not None:
+            overlay = draw_overlay(image, result_circle.center, result_circle.radius)
+        else:
+            overlay = image.copy()
+            cx, cy = map(int, map(round, result_circle.center))
+            cv2.circle(overlay, (cx, cy), int(round(result_circle.radius)), (0, 255, 0), 3)
+            cv2.putText(overlay, f"Outer D={diameter:.2f}px", (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 255, 255), 2, cv2.LINE_AA)
+        color = (0, 255, 0) if is_ok else (0, 0, 255)
+        cv2.putText(
+            overlay,
+            f"Mirror {'OK' if is_ok else 'NG'} | D={diameter:.2f}px | lim=[{self.config.mirror_diameter_min:.2f},{self.config.mirror_diameter_max:.2f}]",
+            (20, max(70, overlay.shape[0] - 24)),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.8,
+            color,
+            2,
+            cv2.LINE_AA,
+        )
+        return overlay, diameter, is_ok
+
+    def _write_mirror_result(self, is_ok: bool) -> None:
+        out_addr = self.config.plc.addr.mirror_result_word
+        if out_addr:
+            self.plc.write_word(out_addr, 1 if is_ok else 0)
+
+    @QtCore.pyqtSlot(str)
+    def run_mirror_test_on_image(self, image_path: str) -> None:
+        with self._lock:
+            try:
+                image = cv2.imread(image_path)
+                if image is None:
+                    raise RuntimeError(f"Cannot read mirror test image: {image_path}")
+                overlay, diameter, is_ok = self._measure_mirror(image)
+                self._write_mirror_result(is_ok)
+                self.mirror_test_completed.emit(overlay, diameter, is_ok)
+            except Exception as exc:
+                LOGGER.warning("Mirror test from image failed: %s", exc)
+                try:
+                    self._write_mirror_result(False)
+                except Exception:
+                    pass
+                self.cycle_failed.emit(str(exc))
+
+    @QtCore.pyqtSlot()
+    def run_mirror_cycle(self) -> None:
+        with self._lock:
+            try:
+                self.cycle_started.emit()
+                self.plc.set_busy(True)
+                self._ensure_camera_ready()
+                capture = self.camera.capture()
+                image = capture.image
+                overlay, diameter, is_ok = self._measure_mirror(image)
+                self._write_mirror_result(is_ok)
+                self.plc.set_error(False)
+                self.plc.set_done(True)
+                self.mirror_test_completed.emit(overlay, diameter, is_ok)
+                LOGGER.info("Mirror mode diameter=%.3f, limits=[%.3f, %.3f], result=%s", diameter, self.config.mirror_diameter_min, self.config.mirror_diameter_max, "OK" if is_ok else "NG")
+            except Exception as exc:
+                LOGGER.warning("Mirror cycle failed or no circle detected: %s", exc)
+                try:
+                    self._write_mirror_result(False)
+                    self.plc.set_error(False)
                     self.plc.set_done(True)
                 finally:
                     self.cycle_failed.emit(str(exc))
@@ -475,12 +602,59 @@ class PlcModelSelectWorker(QtCore.QThread):
         self.wait(1000)
 
 
+class PlcModeSelectWorker(QtCore.QThread):
+    mode_changed = QtCore.pyqtSignal(int)
+
+    def __init__(
+        self,
+        plc: PlcController,
+        address: str,
+        poll_interval: float = 0.2,
+        stable_ms: int = 200,
+        parent: Optional[QtCore.QObject] = None,
+    ) -> None:
+        super().__init__(parent)
+        self._plc = plc
+        self._address = address
+        self._poll_interval = poll_interval
+        self._stable_ms = max(int(stable_ms), 0)
+        self._stopping = threading.Event()
+        self._last_emitted_value: Optional[int] = None
+        self._candidate_value: Optional[int] = None
+        self._candidate_since: float = 0.0
+
+    def run(self) -> None:  # pragma: no cover - thread logic
+        while not self._stopping.is_set():
+            try:
+                value = int(self._plc.read_word(self._address))
+                now = time.time()
+                if self._candidate_value != value:
+                    self._candidate_value = value
+                    self._candidate_since = now
+                stable_ms = (now - self._candidate_since) * 1000.0
+                if self._last_emitted_value is None:
+                    self._last_emitted_value = value
+                    self.mode_changed.emit(value)
+                elif self._candidate_value != self._last_emitted_value and stable_ms >= self._stable_ms:
+                    self._last_emitted_value = self._candidate_value
+                    self.mode_changed.emit(self._candidate_value)
+                self.msleep(int(self._poll_interval * 1000))
+            except Exception as exc:
+                LOGGER.error("PLC mode polling failed: %s", exc)
+                self.msleep(1000)
+
+    def stop(self) -> None:  # pragma: no cover
+        self._stopping.set()
+        self.wait(1000)
+
+
 class PlcTriggerWorker(QtCore.QThread):
     triggered = QtCore.pyqtSignal()
 
     def __init__(
         self,
         plc: PlcController,
+        trigger_address: Optional[str] = None,
         poll_interval: float = 0.05,
         min_interval_ms: int = 100,
         high_stable_ms: int = 80,
@@ -490,6 +664,7 @@ class PlcTriggerWorker(QtCore.QThread):
     ) -> None:
         super().__init__(parent)
         self._plc = plc
+        self._trigger_address = trigger_address or plc.config.addr.trigger
         self._poll_interval = poll_interval
         self._min_interval_ms = max(int(min_interval_ms), 0)
         self._high_stable_ms = max(int(high_stable_ms), 0)
@@ -516,7 +691,7 @@ class PlcTriggerWorker(QtCore.QThread):
     def run(self) -> None:  # pragma: no cover - thread logic
         while not self._stopping.is_set():
             try:
-                state = self._plc.client.read_bit(self._plc.config.addr.trigger)
+                state = self._plc.client.read_bit(self._trigger_address)
                 now = time.time()
 
                 if state:
