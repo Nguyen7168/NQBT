@@ -53,12 +53,43 @@ Tài liệu này là bản vận hành chuẩn giữa **PLC ↔ App** để trá
 | Mode hiện tại | Trigger chính (`trigger`) | Trigger SAMPLE (`sample_trigger`) | Hành vi |
 |---|---:|---:|---|
 | RUN | Có hiệu lực | Bỏ qua | Chụp camera + infer model + ghi mảng kết quả |
+<<<<<<< codex/add-image-sampling-functionality-with-plc-signal-43h886
+| SAMPLE | Có hiệu lực | Có hiệu lực | Load ảnh mẫu `sample_image_root/<ten_recipe>/*.png` + infer + ghi mảng kết quả |
+=======
 | SAMPLE | Có hiệu lực | Có hiệu lực | Load ảnh mẫu `sample_root/<ma_hang>/*.png` + infer + ghi mảng kết quả |
+>>>>>>> main
 | MIRROR | Có hiệu lực | Bỏ qua | Chụp camera + đo đường kính + ghi `mirror_result_word` |
 
 ### Lưu ý quan trọng cho SAMPLE
 - Nếu không tìm thấy ảnh mẫu theo mã hàng: app cảnh báo, không crash.
 - PLC nên giám sát timeout tại tầng ladder để tránh chờ vô hạn.
+<<<<<<< codex/add-image-sampling-functionality-with-plc-signal-43h886
+- App hiện tại tìm ảnh theo thứ tự:
+  1. `sample_image_root/<recipe.name>/*.png`
+  2. nếu không có `recipe.name` thì fallback `sample_image_root/<active_recipe_code>/*.png`
+- Chỉ nhận file đuôi `*.png` (không tự lấy jpg/jpeg).
+- Tên thư mục phải trùng **chính xác** với `models.glass_recipes[].name` (phân biệt hoa/thường trên Linux).
+
+---
+
+## 3.1) Chuẩn đặt thư mục ảnh mẫu
+
+Ví dụ:
+
+```text
+samples/
+  23-233HA-E/
+    sample_001.png
+    sample_002.png
+  ITEM_2/
+    sample_001.png
+```
+
+Trong đó:
+- `samples` là giá trị `sample_image_root` trong file config.
+- `23-233HA-E`, `ITEM_2` phải đúng với tên recipe trong `models.glass_recipes`.
+=======
+>>>>>>> main
 
 ---
 
@@ -120,7 +151,28 @@ Tài liệu này là bản vận hành chuẩn giữa **PLC ↔ App** để trá
 
 ---
 
+<<<<<<< codex/add-image-sampling-functionality-with-plc-signal-43h886
+## 7) Triển khai 2 app (config.yaml + config1.yaml)
+
+- App #1 dùng `config.yaml`.
+- App #2 dùng `config1.yaml`.
+- Khuyến nghị chạy bằng tham số:
+
+```bash
+python run.py --config config.yaml
+python run.py --config config1.yaml
+```
+
+Lưu ý bắt buộc khi chạy song song:
+- Không để trùng các word/bit output điều khiển giữa 2 app (`busy/done/mode_current/result_bits_start_word/mirror_result_word/...`).
+- Nếu 2 app cùng PLC, nên xác nhận lại các bit ACK/ERROR có tách riêng hay không trước khi chạy production.
+
+---
+
+## 8) Liên kết tài liệu liên quan
+=======
 ## 7) Liên kết tài liệu liên quan
+>>>>>>> main
 - Trigger/handshake chi tiết: `docs/plc_trigger_flow.md`
 - Recipe/model flow: `docs/plc_model_recipe_flow.md`
 - API PLC + timing notes: `app/inspection/plc_note.md`

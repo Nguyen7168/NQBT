@@ -14,6 +14,19 @@ nào xong.
 
 ------------------------------------------------------------------------
 
+
+## 0️⃣ Trigger theo mode (thực tế hiện tại)
+
+- Mode RUN (`mode_current_word=1`): dùng trigger chính `plc.addr.trigger`.
+- Mode SAMPLE (`mode_current_word=2`):
+  - trigger chính vẫn có hiệu lực,
+  - trigger riêng SAMPLE `plc.addr.sample_trigger` cũng có hiệu lực.
+- Mode MIRROR (`mode_current_word=3`): dùng trigger chính; kết quả mirror ghi `plc.addr.mirror_result_word` (OK=1/NG=0).
+
+> Chi tiết đầy đủ xem `docs/plc_operation_guide.md`.
+
+------------------------------------------------------------------------
+
 ## 1️⃣ PLC gửi tín hiệu Trigger → App phát hiện
 
 **File & hàm:**\
