@@ -1,5 +1,8 @@
 # PLC Recipe/Model Selection Flow (DM1530 ↔ DM1524)
 
+> Xem thêm tài liệu vận hành tổng hợp: `docs/plc_operation_guide.md`
+
+
 ## Mục tiêu
 - PLC ghi mã hàng vào `DM1530` (model_select_word).
 - App tự chuyển model GLASS tương ứng theo mapping cấu hình.
@@ -50,3 +53,9 @@ Trong `config.yaml`:
 - Trigger mới sẽ bị bỏ qua nếu app đang đổi model hoặc đã có cycle đang chạy/chờ chạy.
 - Poll DM1530 có thêm `model_stable_ms`: chỉ đổi model khi mã ổn định đủ thời gian.
 - Chờ ACK clear sau cycle có timeout `ack_clear_ms` để tránh chờ vô hạn nếu ACK bị kẹt ON.
+
+
+## Triển khai 2 app
+- App 1: chạy với `config.yaml` (DM1530 ↔ DM1524).
+- App 2: chạy với `config1.yaml` (DM1630 ↔ DM1624).
+- PLC chỉ phát trigger inspection khi model_current == model_select tương ứng từng app.

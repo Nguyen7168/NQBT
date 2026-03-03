@@ -1,38 +1,38 @@
 camera:
-  serial: null
+  serial: 40736984
   exposure_us: 8000
   gain: 0
-  pixel_format: "Mono8"
+  pixel_format: "BayerRG8"
 
 window:
   x: 0
   y: 0
-  width: 1400
+  width: 640
   height: 900
 
 plc:
   protocol: "ASCII_TCP"
-  ip: "192.168.0.10"
+  ip: "192.168.0.100"
   port: 8501
   addr:
-    busy: "R1000"
-    done: "R1001"
+    busy: "DM1622"
+    done: "DM1623"
     error: "R1002"
-    ready: "R1003"
-    run: "R1004"
-    trigger: "M200"
-    ack: "M201"
-    result_bits_start_word: "R1100"
-    model_select_word: "DM1530"
-    model_current_word: "DM1524"
-    sample_trigger: "MR87900"
-    mode_request_word: "DM1533"
-    mode_current_word: "DM1525"
-    mirror_result_word: "EM1332"
+    ready: "DM1621"
+    run: "DM1620"
+    trigger: "MR64312"
+    ack: "EM7002"
+    result_bits_start_word: "EM8901"
+    model_select_word: "DM1630"
+    model_current_word: "DM1624"
+    sample_trigger: "MR87901"
+    mode_request_word: "DM1633.1"
+    mode_current_word: "DM1625"
+    mirror_result_word: "EM1334"
   log_raw_response: false
-  trigger_poll_interval_ms: 50
+  trigger_poll_interval_ms: 10
   trigger_min_interval_ms: 100
-  trigger_high_stable_ms: 80
+  trigger_high_stable_ms: 40
   trigger_low_stable_ms: 80
   trigger_cooldown_ms: 300
   enable_plc_trigger: true
@@ -45,11 +45,26 @@ plc:
     ack_clear_ms: 2000
 
 models:
-  anomaly:
-    path: "models/anomaly.onnx"
+  algo: "GLASS"  # INP or GLASS
+  inp:
+    path: app/models/anomaly.onnx
     provider: "cuda"
-    threshold: 0.15
-    input_size: 256
+    input_size: 448
+    inp_threshold: 0.15
+    inp_blur_kernel: 5
+    inp_blur_sigma: 4.0
+    inp_max_ratio: 0.0
+    inp_bin_thresh: 0.2
+  glass:
+    path: app/models/gls_epoch_124_loss_0_1330_271img.pth
+    provider: "cuda"
+    input_size: 288
+    glass_threshold: 0.5
+    glass_batch: 8
+    glass_blur_kernel: 33
+    glass_blur_sigma: 4.0
+    glass_norm_eps: 1.0e-8
+    glass_bin_thresh: 0.8
   yolo:
     enabled: false
     path: "models/yolo.engine"
@@ -58,12 +73,12 @@ models:
   active_recipe_code: 1
   glass_recipes:
     - code: 1
-      path: "models/ITEM_A.pth"
-      name: "ITEM_A"
-      glass_threshold: 0.5
+      path: "app/models/gls_epoch_124_loss_0_1330_271img.pth"
+      name: "23-233HA-E"
+      glass_threshold: 0.98
     - code: 2
-      path: "models/ITEM_B.pth"
-      name: "ITEM_B"
+      path: "app/models/gls_epoch_124_loss_0_1330_271img.pth"
+      name: "ITEM_2"
       glass_threshold: 0.5
 
 io:
@@ -72,6 +87,8 @@ io:
   raw_dir: "runs/raw"
   crops_dir: "runs/crops"
   filename_pattern: "{ts}_{model}_{idx:02d}_{cls}.png"
+  save_heatmap: false
+  save_binary: false
   save_crops: false
 
 layout:
@@ -80,19 +97,20 @@ layout:
   rows: 4
   cols: 7
   patch_padding: 10
+  crop_method: "circle"
   circle_min_radius: 250
   circle_max_radius: 270
   circle_radius_expand: 0
   circle_erode_iter: 0
   circle_dilate_iter: 0
-  circle_blur_kernel: 5
+  circle_blur_kernel: 3
   circle_threshold: 50
   circle_use_otsu: false
   circle_invert: false
-  ws_scale: 0.5
-  ws_dist_ratio: 0.4
-  ws_open_ksize: 3
-  ws_open_iter: 1
+  ws_scale: 0.4
+  ws_dist_ratio: 0.5
+  ws_open_ksize: 5
+  ws_open_iter: 2
   ws_bg_dilate_iter: 2
   ws_dist_mask_size: 5
   ws_min_area_px: 2000

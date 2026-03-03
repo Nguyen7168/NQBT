@@ -1,5 +1,8 @@
 # Tài liệu giải thích chức năng các hàm PLC – Tiếng Việt
 
+> Xem thêm tài liệu vận hành tổng hợp: `docs/plc_operation_guide.md`
+
+
 Tài liệu này mô tả **mục đích và cách sử dụng (use-case)** của từng hàm liên quan đến PLC trong hệ thống,
 bao gồm cả **hàm low-level (giao tiếp PLC)** và **hàm high-level trong PlcController**.
 
