@@ -22,7 +22,11 @@ from app.inspection.plc_client import PlcController
 from app.models.anomaly import AnomalyDetector
 from app.models.yolo import YoloDetector, YoloResult
 from app.utils import ensure_dir, save_image
-from kiem_guong import find_outer_circle_from_edges
+try:
+    from kiem_guong import draw_overlay, find_outer_circle_from_edges
+except Exception:  # pragma: no cover - optional mirror module
+    draw_overlay = None  # type: ignore
+    find_outer_circle_from_edges = None  # type: ignore
 
 LOGGER = logging.getLogger(__name__)
 
@@ -82,6 +86,7 @@ class InspectionWorker(QtCore.QObject):
     model_reload_failed = QtCore.pyqtSignal(str)
     camera_ready = QtCore.pyqtSignal()
     camera_failed = QtCore.pyqtSignal(str)
+    mirror_test_completed = QtCore.pyqtSignal(object, float, bool)
 
     def __init__(
         self,
@@ -244,6 +249,61 @@ class InspectionWorker(QtCore.QObject):
                 except Exception:
                     LOGGER.exception("Finalize cycle failed")
 
+    def _measure_mirror(self, image: np.ndarray) -> tuple[np.ndarray, float, bool]:
+        if find_outer_circle_from_edges is None:
+            raise RuntimeError("Mirror module unavailable: kiem_guong.py not found")
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        blur_kernel = max(1, int(self.config.mirror_blur_kernel))
+        if blur_kernel % 2 == 0:
+            blur_kernel += 1
+        blur = cv2.GaussianBlur(gray, (blur_kernel, blur_kernel), 0)
+        edges = cv2.Canny(blur, int(self.config.mirror_canny_threshold1), int(self.config.mirror_canny_threshold2))
+        result_circle, _ = find_outer_circle_from_edges(edges, min_contour_area=float(self.config.mirror_min_contour_area))
+        diameter = float(2.0 * result_circle.radius)
+        is_ok = float(self.config.mirror_diameter_min) <= diameter <= float(self.config.mirror_diameter_max)
+        if draw_overlay is not None:
+            overlay = draw_overlay(image, result_circle.center, result_circle.radius)
+        else:
+            overlay = image.copy()
+            cx, cy = map(int, map(round, result_circle.center))
+            cv2.circle(overlay, (cx, cy), int(round(result_circle.radius)), (0, 255, 0), 3)
+            cv2.putText(overlay, f"Outer D={diameter:.2f}px", (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 255, 255), 2, cv2.LINE_AA)
+        color = (0, 255, 0) if is_ok else (0, 0, 255)
+        cv2.putText(
+            overlay,
+            f"Mirror {'OK' if is_ok else 'NG'} | D={diameter:.2f}px | lim=[{self.config.mirror_diameter_min:.2f},{self.config.mirror_diameter_max:.2f}]",
+            (20, max(70, overlay.shape[0] - 24)),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.8,
+            color,
+            2,
+            cv2.LINE_AA,
+        )
+        return overlay, diameter, is_ok
+
+    def _write_mirror_result(self, is_ok: bool) -> None:
+        out_addr = self.config.plc.addr.mirror_result_word
+        if out_addr:
+            self.plc.write_word(out_addr, 1 if is_ok else 0)
+
+    @QtCore.pyqtSlot(str)
+    def run_mirror_test_on_image(self, image_path: str) -> None:
+        with self._lock:
+            try:
+                image = cv2.imread(image_path)
+                if image is None:
+                    raise RuntimeError(f"Cannot read mirror test image: {image_path}")
+                overlay, diameter, is_ok = self._measure_mirror(image)
+                self._write_mirror_result(is_ok)
+                self.mirror_test_completed.emit(overlay, diameter, is_ok)
+            except Exception as exc:
+                LOGGER.warning("Mirror test from image failed: %s", exc)
+                try:
+                    self._write_mirror_result(False)
+                except Exception:
+                    pass
+                self.cycle_failed.emit(str(exc))
+
     @QtCore.pyqtSlot()
     def run_mirror_cycle(self) -> None:
         with self._lock:
@@ -253,27 +313,16 @@ class InspectionWorker(QtCore.QObject):
                 self._ensure_camera_ready()
                 capture = self.camera.capture()
                 image = capture.image
-                gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-                blur_kernel = max(1, int(self.config.mirror_blur_kernel))
-                if blur_kernel % 2 == 0:
-                    blur_kernel += 1
-                blur = cv2.GaussianBlur(gray, (blur_kernel, blur_kernel), 0)
-                edges = cv2.Canny(blur, int(self.config.mirror_canny_threshold1), int(self.config.mirror_canny_threshold2))
-                result_circle, _ = find_outer_circle_from_edges(edges, min_contour_area=float(self.config.mirror_min_contour_area))
-                diameter = float(2.0 * result_circle.radius)
-                is_ok = float(self.config.mirror_diameter_min) <= diameter <= float(self.config.mirror_diameter_max)
-                out_addr = self.config.plc.addr.mirror_result_word
-                if out_addr:
-                    self.plc.write_word(out_addr, 1 if is_ok else 0)
+                overlay, diameter, is_ok = self._measure_mirror(image)
+                self._write_mirror_result(is_ok)
                 self.plc.set_error(False)
                 self.plc.set_done(True)
+                self.mirror_test_completed.emit(overlay, diameter, is_ok)
                 LOGGER.info("Mirror mode diameter=%.3f, limits=[%.3f, %.3f], result=%s", diameter, self.config.mirror_diameter_min, self.config.mirror_diameter_max, "OK" if is_ok else "NG")
             except Exception as exc:
                 LOGGER.warning("Mirror cycle failed or no circle detected: %s", exc)
-                out_addr = self.config.plc.addr.mirror_result_word
                 try:
-                    if out_addr:
-                        self.plc.write_word(out_addr, 0)
+                    self._write_mirror_result(False)
                     self.plc.set_error(False)
                     self.plc.set_done(True)
                 finally:

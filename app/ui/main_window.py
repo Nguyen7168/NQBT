@@ -251,14 +251,38 @@ class MainWindow(QtWidgets.QMainWindow):
         select_output_action = QtWidgets.QAction("Select output folder", self)
         options_menu.addAction(select_output_action)
 
+        mode_menu = self.menuBar().addMenu("Mode")
+        self.mode_action_group = QtWidgets.QActionGroup(self)
+        self.mode_action_group.setExclusive(True)
+        self.mode_run_action = QtWidgets.QAction("RUN", self, checkable=True)
+        self.mode_sample_action = QtWidgets.QAction("SAMPLE", self, checkable=True)
+        self.mode_mirror_action = QtWidgets.QAction("MIRROR", self, checkable=True)
+        for action in (self.mode_run_action, self.mode_sample_action, self.mode_mirror_action):
+            self.mode_action_group.addAction(action)
+            mode_menu.addAction(action)
+
+        tools_menu = self.menuBar().addMenu("Tools")
+        self.test_mirror_from_image_action = QtWidgets.QAction("Test Mirror from Image", self)
+        tools_menu.addAction(self.test_mirror_from_image_action)
+
+        mode_toolbar = self.addToolBar("Mode")
+        mode_toolbar.addAction(self.mode_run_action)
+        mode_toolbar.addAction(self.mode_sample_action)
+        mode_toolbar.addAction(self.mode_mirror_action)
+
+        tools_toolbar = self.addToolBar("Tools")
+        tools_toolbar.addAction(self.test_mirror_from_image_action)
+
         self.status_camera = QtWidgets.QLabel("Camera: Idle")
         self.status_plc = QtWidgets.QLabel(f"PLC: {self._plc_status}")
+        self.status_mode = QtWidgets.QLabel("Mode: RUN")
         status_min_width = 260
         if configured_width and configured_width <= 800:
             status_min_width = 140
         self.status_camera.setMinimumWidth(status_min_width)
         self.status_plc.setMinimumWidth(status_min_width)
         self.statusBar().addWidget(self.status_camera)
+        self.statusBar().addPermanentWidget(self.status_mode)
         self.statusBar().addPermanentWidget(self.status_plc)
 
         # Connect UI actions
@@ -275,6 +299,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self.save_binary_action.toggled.connect(self._toggle_save_binary)
         self.save_crops_action.toggled.connect(self._toggle_save_crops)
         self.plc_monitor_toggle.toggled.connect(self._toggle_plc_monitor)
+        self.mode_run_action.triggered.connect(lambda: self._on_manual_mode_selected(OperatingMode.RUN))
+        self.mode_sample_action.triggered.connect(lambda: self._on_manual_mode_selected(OperatingMode.SAMPLE))
+        self.mode_mirror_action.triggered.connect(lambda: self._on_manual_mode_selected(OperatingMode.MIRROR))
+        self.test_mirror_from_image_action.triggered.connect(self._test_mirror_from_image)
         self.run_anomaly_button.setEnabled(False)
 
         self.plc_monitor_timer = QtCore.QTimer(self)
@@ -358,6 +386,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.worker.model_reload_failed.connect(self._on_model_reload_failed)
         self.worker.camera_ready.connect(self._on_camera_ready)
         self.worker.camera_failed.connect(self._on_camera_failed)
+        self.worker.mirror_test_completed.connect(self._on_mirror_test_completed)
         self.save_worker.finished.connect(lambda path: self.statusBar().showMessage(f"Saved results to {path}", 3000))
         self.save_worker.failed.connect(lambda msg: self.statusBar().showMessage(f"Save failed: {msg}", 5000))
         # Keep initial status as Idle until a successful cycle completes
@@ -406,6 +435,7 @@ class MainWindow(QtWidgets.QMainWindow):
             except PLCError as exc:
                 messages.append(f"Cannot write current recipe code at startup: {exc}")
 
+        self._sync_mode_actions()
         self._write_mode_current()
 
         if messages:
@@ -541,6 +571,48 @@ class MainWindow(QtWidgets.QMainWindow):
             self._last_status_message_ts[key] = now
             self.statusBar().showMessage(message, 2000)
 
+    @QtCore.pyqtSlot()
+    def _test_mirror_from_image(self) -> None:
+        file_path, _ = QtWidgets.QFileDialog.getOpenFileName(
+            self,
+            "Select mirror test image",
+            "",
+            "Images (*.png *.jpg *.jpeg *.bmp)",
+        )
+        if not file_path:
+            return
+        QtCore.QMetaObject.invokeMethod(
+            self.worker,
+            "run_mirror_test_on_image",
+            QtCore.Qt.QueuedConnection,
+            QtCore.Q_ARG(str, file_path),
+        )
+
+    @QtCore.pyqtSlot(object, float, bool)
+    def _on_mirror_test_completed(self, overlay_image: object, diameter: float, is_ok: bool) -> None:
+        if isinstance(overlay_image, np.ndarray):
+            self._set_display_image(numpy_to_qimage(overlay_image))
+        self.statusBar().showMessage(
+            f"Mirror test {'OK' if is_ok else 'NG'} | diameter={diameter:.2f}px",
+            4000,
+        )
+
+    def _sync_mode_actions(self) -> None:
+        mapping = {
+            OperatingMode.RUN: self.mode_run_action,
+            OperatingMode.SAMPLE: self.mode_sample_action,
+            OperatingMode.MIRROR: self.mode_mirror_action,
+        }
+        action = mapping.get(self._current_mode)
+        if action is not None:
+            action.setChecked(True)
+
+    def _on_manual_mode_selected(self, mode: OperatingMode) -> None:
+        # PLC has higher priority; manual mode can be overridden at next PLC mode update.
+        self._requested_mode = mode
+        self.statusBar().showMessage(f"Manual mode requested: {mode.name}", 2000)
+        self._apply_requested_mode_if_idle()
+
     def _write_mode_current(self) -> None:
         mode_current_addr = getattr(self.config.plc.addr, "mode_current_word", None)
         if not mode_current_addr:
@@ -552,7 +624,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _set_mode(self, mode: OperatingMode) -> None:
         self._current_mode = mode
-        self.mode_label.setText(mode.name)
+        self.status_mode.setText(f"Mode: {mode.name}")
+        self._sync_mode_actions()
         self._write_mode_current()
 
     def _apply_requested_mode_if_idle(self) -> None:
@@ -567,8 +640,9 @@ class MainWindow(QtWidgets.QMainWindow):
         target = mode_map.get(int(mode_value), OperatingMode.RUN)
         self._requested_mode = target
         if self._cycle_request_inflight or self.plc.state.busy:
-            self.statusBar().showMessage(f"Queued mode {target.name} until cycle complete", 3000)
+            self.statusBar().showMessage(f"PLC mode {target.name} queued until cycle complete", 3000)
             return
+        self.statusBar().showMessage(f"PLC override mode -> {target.name}", 2500)
         self._set_mode(target)
 
     def _toggle_plc_monitor(self, enabled: bool) -> None:
