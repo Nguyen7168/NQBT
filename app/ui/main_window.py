@@ -111,19 +111,19 @@ class MainWindow(QtWidgets.QMainWindow):
 
         model_widget = QtWidgets.QWidget()
         model_layout = QtWidgets.QVBoxLayout(model_widget)
-        model_title = QtWidgets.QLabel("Model")
-        self.model_label = QtWidgets.QLabel(self._current_model_display_name())
-        speed_title = QtWidgets.QLabel("Speed")
-        self.speed_label = QtWidgets.QLabel("0.0 ms")
-        self.mode_label = QtWidgets.QLabel("RUN")
-        model_layout.addWidget(model_title)
-        model_layout.addWidget(self.model_label)
-        model_layout.addWidget(speed_title)
-        model_layout.addWidget(self.speed_label)
-        model_layout.addWidget(QtWidgets.QLabel("Mode"))
-        model_layout.addWidget(self.mode_label)
 
-        controls_layout = QtWidgets.QGridLayout()
+        runtime_group = QtWidgets.QGroupBox("Runtime")
+        runtime_form = QtWidgets.QFormLayout(runtime_group)
+        self.model_label = QtWidgets.QLabel(self._current_model_display_name())
+        self.speed_label = QtWidgets.QLabel("0.0 ms")
+        self.runtime_mode_label = QtWidgets.QLabel(self._current_mode.name)
+        runtime_form.addRow("Model", self.model_label)
+        runtime_form.addRow("Speed", self.speed_label)
+        runtime_form.addRow("Mode", self.runtime_mode_label)
+        model_layout.addWidget(runtime_group)
+
+        actions_group = QtWidgets.QGroupBox("Actions")
+        controls_layout = QtWidgets.QGridLayout(actions_group)
         self.capture_button = QtWidgets.QPushButton("Capture")
         self.load_model_button = QtWidgets.QPushButton("Load model")
         self.open_image_button = QtWidgets.QPushButton("Open image")
@@ -136,7 +136,7 @@ class MainWindow(QtWidgets.QMainWindow):
         controls_layout.addWidget(self.run_anomaly_button, 1, 0)
         controls_layout.addWidget(self.prev_button, 1, 1)
         controls_layout.addWidget(self.next_button, 1, 2)
-        model_layout.addLayout(controls_layout)
+        model_layout.addWidget(actions_group)
 
         summary_bar.addWidget(model_widget, stretch=2)
         inspection_layout.addLayout(summary_bar)
@@ -637,6 +637,7 @@ class MainWindow(QtWidgets.QMainWindow):
     def _set_mode(self, mode: OperatingMode) -> None:
         self._current_mode = mode
         self.status_mode.setText(f"Mode: {mode.name}")
+        self.runtime_mode_label.setText(mode.name)
         self._sync_mode_actions()
         self._write_mode_current()
 
@@ -993,4 +994,3 @@ class MainWindow(QtWidgets.QMainWindow):
     def resizeEvent(self, event: QtGui.QResizeEvent) -> None:
         super().resizeEvent(event)
         self._redraw_display_image()
-

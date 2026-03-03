@@ -28,21 +28,21 @@ Tài liệu này là bản vận hành chuẩn giữa **PLC ↔ App** để trá
 
 ## 2) Mode State Machine
 
-### 2.1 Mode code
+## 2.1 Mode code
 - `1 = RUN`
 - `2 = SAMPLE`
 - `3 = MIRROR`
 
-### 2.2 Nguồn đổi mode
+## 2.2 Nguồn đổi mode
 - **Manual trên app**: người vận hành chọn từ menu/toolbar `Mode`.
 - **PLC mode request**: ghi vào `mode_request_word`.
 
-### 2.3 Rule ưu tiên
+## 2.3 Rule ưu tiên
 - **PLC luôn ưu tiên cao hơn manual**.
 - Nếu PLC đổi mode khi app đang idle, app đổi ngay.
 - Nếu app đang xử lý cycle (`busy=1`), mode mới được queue và áp sau khi cycle kết thúc.
 
-### 2.4 Ảnh hưởng vận hành
+## 2.4 Ảnh hưởng vận hành
 - Không cắt ngang cycle đang chạy → an toàn dữ liệu kết quả.
 - PLC cần đọc `mode_current_word` để biết mode đã áp thực tế.
 
@@ -117,26 +117,26 @@ Trong đó:
 
 ## 6) Commissioning Checklist (trước chạy thật)
 
-### 6.1 Kiểm tra cấu hình
+## 6.1 Kiểm tra cấu hình
 - [ ] IP/port PLC đúng.
 - [ ] Tất cả địa chỉ bit/word map đúng như bảng I/O.
 - [ ] `mode_request_word` / `mode_current_word` map đúng 1/2/3.
 - [ ] `mirror_result_word` map đúng vùng PLC đọc.
 - [ ] `sample_image_root` tồn tại và có thư mục theo mã hàng.
 
-### 6.2 Kiểm tra timing/debounce
+## 6.2 Kiểm tra timing/debounce
 - [ ] Trigger ON đủ dài hơn `trigger_high_stable_ms`.
 - [ ] Trigger OFF đủ dài hơn `trigger_low_stable_ms`.
 - [ ] `trigger_cooldown_ms` đủ để chặn rung xung.
 - [ ] `model_stable_ms` phù hợp chống nhiễu thanh ghi mode/model.
 
-### 6.3 Test tuần tự bắt buộc
+## 6.3 Test tuần tự bắt buộc
 1. Test RUN: 3 cycle liên tiếp, xác nhận ACK clear ổn định.
 2. Test SAMPLE: gửi `sample_trigger`, xác nhận output map giống RUN.
 3. Test MIRROR: test pass/fail ngưỡng, xác nhận `mirror_result_word` 1/0.
 4. Test PLC override manual: chọn mode manual rồi đổi bằng PLC, xác nhận app theo PLC.
 
-### 6.4 Khi có lỗi treo chu kỳ
+## 6.4 Khi có lỗi treo chu kỳ
 - [ ] Kiểm tra ACK có kẹt ON không.
 - [ ] Kiểm tra trigger có rung liên tục không.
 - [ ] Kiểm tra `BUSY`/`DONE` có về 0 sau mỗi cycle không.
