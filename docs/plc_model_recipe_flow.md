@@ -1,5 +1,8 @@
 # PLC Recipe/Model Selection Flow (DM1530 ↔ DM1524)
 
+> Xem thêm tài liệu vận hành tổng hợp: `docs/plc_operation_guide.md`
+
+
 ## Mục tiêu
 - PLC ghi mã hàng vào `DM1530` (model_select_word).
 - App tự chuyển model GLASS tương ứng theo mapping cấu hình.

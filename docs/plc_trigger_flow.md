@@ -1,5 +1,8 @@
 # Hệ Thống Inspection -- PLC ↔ App
 
+> Xem thêm tài liệu vận hành tổng hợp: `docs/plc_operation_guide.md`
+
+
 Hệ thống gồm 3 phần chính:
 
 1.  Phát hiện PLC gửi trigger\
