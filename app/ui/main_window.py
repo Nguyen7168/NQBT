@@ -190,19 +190,31 @@ class MainWindow(QtWidgets.QMainWindow):
         self.tx_error_label = QtWidgets.QLabel("-")
         self.tx_ready_label = QtWidgets.QLabel("-")
         self.tx_run_label = QtWidgets.QLabel("-")
+        self.tx_mode_current_label = QtWidgets.QLabel("-")
+        self.tx_model_current_label = QtWidgets.QLabel("-")
+        self.tx_mirror_result_label = QtWidgets.QLabel("-")
         tx_form.addRow("Busy", self.tx_busy_label)
         tx_form.addRow("Done", self.tx_done_label)
         tx_form.addRow("Error", self.tx_error_label)
         tx_form.addRow("Ready", self.tx_ready_label)
         tx_form.addRow("Run", self.tx_run_label)
+        tx_form.addRow("Mode current word", self.tx_mode_current_label)
+        tx_form.addRow("Model current word", self.tx_model_current_label)
+        tx_form.addRow("Mirror result word", self.tx_mirror_result_label)
         plc_layout.addWidget(tx_group)
 
         rx_group = QtWidgets.QGroupBox("RX (PLC → App)")
         rx_form = QtWidgets.QFormLayout(rx_group)
         self.rx_trigger_label = QtWidgets.QLabel("-")
+        self.rx_sample_trigger_label = QtWidgets.QLabel("-")
         self.rx_ack_label = QtWidgets.QLabel("-")
+        self.rx_mode_request_label = QtWidgets.QLabel("-")
+        self.rx_model_select_label = QtWidgets.QLabel("-")
         rx_form.addRow("Trigger", self.rx_trigger_label)
+        rx_form.addRow("Sample trigger", self.rx_sample_trigger_label)
         rx_form.addRow("ACK", self.rx_ack_label)
+        rx_form.addRow("Mode request word", self.rx_mode_request_label)
+        rx_form.addRow("Model select word", self.rx_model_select_label)
         plc_layout.addWidget(rx_group)
 
         self.plc_results_table = QtWidgets.QTableWidget(self.config.layout.count, 2)
@@ -656,17 +668,49 @@ class MainWindow(QtWidgets.QMainWindow):
             self.plc_monitor_status.setText("Monitor: Off")
             self.plc_monitor_error.setText("")
 
+    def _read_plc_bit_text(self, address: Optional[str]) -> str:
+        if not address:
+            return "N/A"
+        try:
+            value = self.plc.client.read_bit(address)
+            return "ON" if value else "OFF"
+        except Exception:
+            return "ERR"
+
+    def _read_plc_word_text(self, address: Optional[str]) -> str:
+        if not address:
+            return "N/A"
+        try:
+            value = int(self.plc.read_word(address))
+            return str(value)
+        except Exception:
+            return "ERR"
+
     def _poll_plc_monitor(self) -> None:
         try:
             trigger = self.plc.client.read_bit(self.plc.config.addr.trigger)
             ack = self.plc.client.read_bit(self.plc.config.addr.ack)
+            sample_trigger_addr = getattr(self.plc.config.addr, "sample_trigger", None)
+            mode_request_addr = getattr(self.plc.config.addr, "mode_request_word", None)
+            model_select_addr = getattr(self.plc.config.addr, "model_select_word", None)
+            mode_current_addr = getattr(self.plc.config.addr, "mode_current_word", None)
+            model_current_addr = getattr(self.plc.config.addr, "model_current_word", None)
+            mirror_result_addr = getattr(self.plc.config.addr, "mirror_result_word", None)
+
             self.rx_trigger_label.setText("ON" if trigger else "OFF")
+            self.rx_sample_trigger_label.setText(self._read_plc_bit_text(sample_trigger_addr))
             self.rx_ack_label.setText("ON" if ack else "OFF")
+            self.rx_mode_request_label.setText(self._read_plc_word_text(mode_request_addr))
+            self.rx_model_select_label.setText(self._read_plc_word_text(model_select_addr))
+
             self.tx_busy_label.setText("ON" if self.plc.state.busy else "OFF")
             self.tx_done_label.setText("ON" if self.plc.state.done else "OFF")
             self.tx_error_label.setText("ON" if self.plc.state.error else "OFF")
             self.tx_ready_label.setText("ON" if self.plc.state.ready else "OFF")
             self.tx_run_label.setText("ON" if self.plc.state.run else "OFF")
+            self.tx_mode_current_label.setText(self._read_plc_word_text(mode_current_addr))
+            self.tx_model_current_label.setText(self._read_plc_word_text(model_current_addr))
+            self.tx_mirror_result_label.setText(self._read_plc_word_text(mirror_result_addr))
             results = self.plc.state.last_results
             total = self.config.layout.count
             for row in range(total):

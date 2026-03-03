@@ -28,21 +28,21 @@ Tài liệu này là bản vận hành chuẩn giữa **PLC ↔ App** để trá
 
 ## 2) Mode State Machine
 
-## 2.1 Mode code
+### 2.1 Mode code
 - `1 = RUN`
 - `2 = SAMPLE`
 - `3 = MIRROR`
 
-## 2.2 Nguồn đổi mode
+### 2.2 Nguồn đổi mode
 - **Manual trên app**: người vận hành chọn từ menu/toolbar `Mode`.
 - **PLC mode request**: ghi vào `mode_request_word`.
 
-## 2.3 Rule ưu tiên
+### 2.3 Rule ưu tiên
 - **PLC luôn ưu tiên cao hơn manual**.
 - Nếu PLC đổi mode khi app đang idle, app đổi ngay.
 - Nếu app đang xử lý cycle (`busy=1`), mode mới được queue và áp sau khi cycle kết thúc.
 
-## 2.4 Ảnh hưởng vận hành
+### 2.4 Ảnh hưởng vận hành
 - Không cắt ngang cycle đang chạy → an toàn dữ liệu kết quả.
 - PLC cần đọc `mode_current_word` để biết mode đã áp thực tế.
 
@@ -53,17 +53,12 @@ Tài liệu này là bản vận hành chuẩn giữa **PLC ↔ App** để trá
 | Mode hiện tại | Trigger chính (`trigger`) | Trigger SAMPLE (`sample_trigger`) | Hành vi |
 |---|---:|---:|---|
 | RUN | Có hiệu lực | Bỏ qua | Chụp camera + infer model + ghi mảng kết quả |
-<<<<<<< codex/add-image-sampling-functionality-with-plc-signal-43h886
 | SAMPLE | Có hiệu lực | Có hiệu lực | Load ảnh mẫu `sample_image_root/<ten_recipe>/*.png` + infer + ghi mảng kết quả |
-=======
-| SAMPLE | Có hiệu lực | Có hiệu lực | Load ảnh mẫu `sample_root/<ma_hang>/*.png` + infer + ghi mảng kết quả |
->>>>>>> main
 | MIRROR | Có hiệu lực | Bỏ qua | Chụp camera + đo đường kính + ghi `mirror_result_word` |
 
 ### Lưu ý quan trọng cho SAMPLE
 - Nếu không tìm thấy ảnh mẫu theo mã hàng: app cảnh báo, không crash.
 - PLC nên giám sát timeout tại tầng ladder để tránh chờ vô hạn.
-<<<<<<< codex/add-image-sampling-functionality-with-plc-signal-43h886
 - App hiện tại tìm ảnh theo thứ tự:
   1. `sample_image_root/<recipe.name>/*.png`
   2. nếu không có `recipe.name` thì fallback `sample_image_root/<active_recipe_code>/*.png`
@@ -88,8 +83,6 @@ samples/
 Trong đó:
 - `samples` là giá trị `sample_image_root` trong file config.
 - `23-233HA-E`, `ITEM_2` phải đúng với tên recipe trong `models.glass_recipes`.
-=======
->>>>>>> main
 
 ---
 
@@ -124,26 +117,26 @@ Trong đó:
 
 ## 6) Commissioning Checklist (trước chạy thật)
 
-## 6.1 Kiểm tra cấu hình
+### 6.1 Kiểm tra cấu hình
 - [ ] IP/port PLC đúng.
 - [ ] Tất cả địa chỉ bit/word map đúng như bảng I/O.
 - [ ] `mode_request_word` / `mode_current_word` map đúng 1/2/3.
 - [ ] `mirror_result_word` map đúng vùng PLC đọc.
 - [ ] `sample_image_root` tồn tại và có thư mục theo mã hàng.
 
-## 6.2 Kiểm tra timing/debounce
+### 6.2 Kiểm tra timing/debounce
 - [ ] Trigger ON đủ dài hơn `trigger_high_stable_ms`.
 - [ ] Trigger OFF đủ dài hơn `trigger_low_stable_ms`.
 - [ ] `trigger_cooldown_ms` đủ để chặn rung xung.
 - [ ] `model_stable_ms` phù hợp chống nhiễu thanh ghi mode/model.
 
-## 6.3 Test tuần tự bắt buộc
+### 6.3 Test tuần tự bắt buộc
 1. Test RUN: 3 cycle liên tiếp, xác nhận ACK clear ổn định.
 2. Test SAMPLE: gửi `sample_trigger`, xác nhận output map giống RUN.
 3. Test MIRROR: test pass/fail ngưỡng, xác nhận `mirror_result_word` 1/0.
 4. Test PLC override manual: chọn mode manual rồi đổi bằng PLC, xác nhận app theo PLC.
 
-## 6.4 Khi có lỗi treo chu kỳ
+### 6.4 Khi có lỗi treo chu kỳ
 - [ ] Kiểm tra ACK có kẹt ON không.
 - [ ] Kiểm tra trigger có rung liên tục không.
 - [ ] Kiểm tra `BUSY`/`DONE` có về 0 sau mỗi cycle không.
@@ -151,7 +144,6 @@ Trong đó:
 
 ---
 
-<<<<<<< codex/add-image-sampling-functionality-with-plc-signal-43h886
 ## 7) Triển khai 2 app (config.yaml + config1.yaml)
 
 - App #1 dùng `config.yaml`.
@@ -170,9 +162,6 @@ Lưu ý bắt buộc khi chạy song song:
 ---
 
 ## 8) Liên kết tài liệu liên quan
-=======
-## 7) Liên kết tài liệu liên quan
->>>>>>> main
 - Trigger/handshake chi tiết: `docs/plc_trigger_flow.md`
 - Recipe/model flow: `docs/plc_model_recipe_flow.md`
 - API PLC + timing notes: `app/inspection/plc_note.md`
