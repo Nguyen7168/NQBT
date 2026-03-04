@@ -652,52 +652,6 @@ class PlcModeSelectWorker(QtCore.QThread):
         self.wait(1000)
 
 
-class PlcModeSelectWorker(QtCore.QThread):
-    mode_changed = QtCore.pyqtSignal(int)
-
-    def __init__(
-        self,
-        plc: PlcController,
-        address: str,
-        poll_interval: float = 0.2,
-        stable_ms: int = 200,
-        parent: Optional[QtCore.QObject] = None,
-    ) -> None:
-        super().__init__(parent)
-        self._plc = plc
-        self._address = address
-        self._poll_interval = poll_interval
-        self._stable_ms = max(int(stable_ms), 0)
-        self._stopping = threading.Event()
-        self._last_emitted_value: Optional[int] = None
-        self._candidate_value: Optional[int] = None
-        self._candidate_since: float = 0.0
-
-    def run(self) -> None:  # pragma: no cover - thread logic
-        while not self._stopping.is_set():
-            try:
-                value = int(self._plc.read_word(self._address))
-                now = time.time()
-                if self._candidate_value != value:
-                    self._candidate_value = value
-                    self._candidate_since = now
-                stable_ms = (now - self._candidate_since) * 1000.0
-                if self._last_emitted_value is None:
-                    self._last_emitted_value = value
-                    self.mode_changed.emit(value)
-                elif self._candidate_value != self._last_emitted_value and stable_ms >= self._stable_ms:
-                    self._last_emitted_value = self._candidate_value
-                    self.mode_changed.emit(self._candidate_value)
-                self.msleep(int(self._poll_interval * 1000))
-            except Exception as exc:
-                LOGGER.error("PLC mode polling failed: %s", exc)
-                self.msleep(1000)
-
-    def stop(self) -> None:  # pragma: no cover
-        self._stopping.set()
-        self.wait(1000)
-
-
 class PlcTriggerWorker(QtCore.QThread):
     triggered = QtCore.pyqtSignal()
 

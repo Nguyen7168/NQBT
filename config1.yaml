@@ -1,5 +1,5 @@
 camera:
-  serial: 40736984
+  serial: "40736984"
   exposure_us: 8000
   gain: 0
   pixel_format: "BayerRG8"
@@ -26,7 +26,7 @@ plc:
     model_select_word: "DM1630"
     model_current_word: "DM1624"
     sample_trigger: "MR87901"
-    mode_request_word: "DM1633.1"
+    mode_request_word: "DM1633"
     mode_current_word: "DM1625"
     mirror_result_word: "EM1334"
   log_raw_response: false
