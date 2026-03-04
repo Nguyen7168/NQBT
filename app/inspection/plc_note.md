@@ -1,5 +1,8 @@
 # Tài liệu giải thích chức năng các hàm PLC – Tiếng Việt
 
+> Xem thêm tài liệu vận hành tổng hợp: `docs/plc_operation_guide.md`
+
+
 Tài liệu này mô tả **mục đích và cách sử dụng (use-case)** của từng hàm liên quan đến PLC trong hệ thống,
 bao gồm cả **hàm low-level (giao tiếp PLC)** và **hàm high-level trong PlcController**.
 
@@ -228,8 +231,11 @@ trigger_cooldown_ms: 300
 enable_plc_trigger: true
 model_poll_interval_ms: 200
 model_stable_ms: 200
+sample_trigger_poll_interval_ms: 50
+poll_error_backoff_ms: 1000
 timeouts:
   connect_ms: 3000
+  response_ms: 1000
   cycle_ms: 5000
   ack_clear_ms: 2000
 ```
@@ -273,10 +279,27 @@ timeouts:
 - Giá trị model code phải ổn định liên tục trong thời gian này trước khi app xác nhận đổi model.
 - Mục tiêu là tránh đổi model do nhiễu đọc nhất thời.
 
-## 7.3 Nhóm timeout handshake
+## 7.3 Trigger SAMPLE riêng
+
+### `sample_trigger_poll_interval_ms`
+- Chu kỳ app đọc bit `sample_trigger` từ PLC (đơn vị ms).
+- Worker `sample_trigger` chỉ chạy khi app đang ở mode `SAMPLE`; khi mode khác, worker sẽ dừng để giảm tải poll PLC.
+
+### `poll_error_backoff_ms`
+- Thời gian sleep sau mỗi lần poll lỗi (áp dụng chung cho trigger/model/mode/sample-trigger worker).
+- Trước đây hard-code 1000 ms; hiện đã config được để giảm thời gian “đứng chờ” sau lỗi.
+- Chu kỳ lặp log lỗi gần đúng: `response_ms + poll_error_backoff_ms` (cộng thêm overhead nhỏ).
+
+## 7.4 Nhóm timeout handshake
 
 ### `timeouts.connect_ms`
 - Timeout kết nối TCP tới PLC khi khởi động.
+
+### `timeouts.response_ms`
+- Timeout chờ phản hồi cho mỗi lệnh đọc/ghi PLC qua socket (ví dụ `RD MR62500`).
+- Mặc định `1000` ms.
+- Nếu PLC không trả lời, thời gian chờ này cộng với `poll_error_backoff_ms` quyết định tốc độ retry/log lỗi.
+- Có thể chỉnh trong `config.yaml`/`config1.yaml` theo chất lượng mạng/PLC thực tế.
 
 ### `timeouts.cycle_ms`
 - Timeout tối đa cho pha chờ ACK/cycle handshake.
@@ -286,7 +309,7 @@ timeouts:
 - Timeout chờ PLC hạ ACK về OFF sau khi app finalize cycle.
 - Dùng để đảm bảo hệ thống quay về trạng thái sẵn sàng cho chu kỳ tiếp theo.
 
-## 7.4 Khuyến nghị nhanh cho đội PLC
+## 7.5 Khuyến nghị nhanh cho đội PLC
 
 - Trigger nên là bit sạch, có xung ON đủ dài hơn `trigger_high_stable_ms`.
 - Sau khi app nhận trigger, PLC nên hạ Trigger rõ ràng và giữ OFF đủ lâu (`trigger_low_stable_ms`).

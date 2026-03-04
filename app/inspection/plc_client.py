@@ -101,7 +101,7 @@ class OmronFinsTcpClient(BasePLCClient):
 
     def connect(self) -> None:
         self._sock = socket.create_connection((self._config.ip, self._config.port), timeout=self._config.timeouts.connect_ms / 1000.0)
-        self._sock.settimeout(1.0)
+        self._sock.settimeout(max(0.001, self._config.timeouts.response_ms / 1000.0))
         LOGGER.info("Connected to PLC at %s:%s", self._config.ip, self._config.port)
 
     def close(self) -> None:
@@ -277,7 +277,7 @@ class AsciiTcpClient(BasePLCClient):
 
     def connect(self) -> None:
         self._sock = socket.create_connection((self._config.ip, self._config.port), timeout=self._config.timeouts.connect_ms / 1000.0)
-        self._sock.settimeout(1.0)
+        self._sock.settimeout(max(0.001, self._config.timeouts.response_ms / 1000.0))
         LOGGER.info("Connected (ASCII TCP) to PLC at %s:%s", self._config.ip, self._config.port)
 
     def close(self) -> None:
