@@ -1,5 +1,5 @@
 camera:
-  serial: 40736983
+  serial: "40736983"
   exposure_us: 8000
   gain: 0
   pixel_format: "BayerRG8"
