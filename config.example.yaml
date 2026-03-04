@@ -25,6 +25,10 @@ plc:
     result_bits_start_word: "R1100"
     model_select_word: "DM1530"
     model_current_word: "DM1524"
+    sample_trigger: "MR87900"
+    mode_request_word: "DM1533"
+    mode_current_word: "DM1525"
+    mirror_result_word: "EM1332"
   log_raw_response: false
   trigger_poll_interval_ms: 50
   trigger_min_interval_ms: 100
@@ -34,8 +38,10 @@ plc:
   enable_plc_trigger: true
   model_poll_interval_ms: 200
   model_stable_ms: 200
+  sample_trigger_poll_interval_ms: 50
   timeouts:
     connect_ms: 3000
+    response_ms: 1000
     cycle_ms: 5000
     ack_clear_ms: 2000
 
@@ -92,3 +98,12 @@ layout:
   ws_dist_mask_size: 5
   ws_min_area_px: 2000
   ws_max_contour_pts: 800
+
+
+sample_image_root: "samples"
+mirror_blur_kernel: 3
+mirror_canny_threshold1: 222
+mirror_canny_threshold2: 100
+mirror_min_contour_area: 5000
+mirror_diameter_min: 100
+mirror_diameter_max: 1000

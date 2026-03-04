@@ -28,11 +28,16 @@ class PlcAddressConfig:
     result_bits_start_word: str
     model_select_word: Optional[str] = None
     model_current_word: Optional[str] = None
+    sample_trigger: Optional[str] = None
+    mode_request_word: Optional[str] = None
+    mode_current_word: Optional[str] = None
+    mirror_result_word: Optional[str] = None
 
 
 @dataclass
 class PlcTimeoutConfig:
     connect_ms: int = 3000
+    response_ms: int = 1000
     cycle_ms: int = 5000
     ack_clear_ms: int = 2000
 
@@ -53,6 +58,7 @@ class PlcConfig:
     enable_plc_trigger: bool = True
     model_poll_interval_ms: int = 200
     model_stable_ms: int = 200
+    sample_trigger_poll_interval_ms: int = 50
 
 
 @dataclass
@@ -164,6 +170,13 @@ class AppConfig:
     io: IOConfig
     layout: LayoutConfig
     window: Optional[WindowConfig] = None
+    sample_image_root: str = "samples"
+    mirror_blur_kernel: int = 3
+    mirror_canny_threshold1: int = 222
+    mirror_canny_threshold2: int = 100
+    mirror_min_contour_area: float = 5000.0
+    mirror_diameter_min: float = 0.0
+    mirror_diameter_max: float = 99999.0
 
 
 class ConfigError(RuntimeError):
@@ -212,6 +225,7 @@ def load_config(path: str | Path) -> AppConfig:
         enable_plc_trigger=bool(plc_raw.get("enable_plc_trigger", True)),
         model_poll_interval_ms=int(plc_raw.get("model_poll_interval_ms", 200)),
         model_stable_ms=int(plc_raw.get("model_stable_ms", 200)),
+        sample_trigger_poll_interval_ms=int(plc_raw.get("sample_trigger_poll_interval_ms", 50)),
     )
 
     models_raw = _require(raw, "models")
@@ -269,4 +283,11 @@ def load_config(path: str | Path) -> AppConfig:
         io=io_cfg,
         layout=layout,
         window=window_cfg,
+        sample_image_root=str(raw.get("sample_image_root", "samples")),
+        mirror_blur_kernel=int(raw.get("mirror_blur_kernel", 3)),
+        mirror_canny_threshold1=int(raw.get("mirror_canny_threshold1", 222)),
+        mirror_canny_threshold2=int(raw.get("mirror_canny_threshold2", 100)),
+        mirror_min_contour_area=float(raw.get("mirror_min_contour_area", 5000.0)),
+        mirror_diameter_min=float(raw.get("mirror_diameter_min", 0.0)),
+        mirror_diameter_max=float(raw.get("mirror_diameter_max", 99999.0)),
     )
