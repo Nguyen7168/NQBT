@@ -41,6 +41,7 @@ plc:
   sample_trigger_poll_interval_ms: 50
   timeouts:
     connect_ms: 3000
+    response_ms: 1000
     cycle_ms: 5000
     ack_clear_ms: 2000
 

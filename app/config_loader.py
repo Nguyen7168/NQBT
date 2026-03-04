@@ -37,6 +37,7 @@ class PlcAddressConfig:
 @dataclass
 class PlcTimeoutConfig:
     connect_ms: int = 3000
+    response_ms: int = 1000
     cycle_ms: int = 5000
     ack_clear_ms: int = 2000
 

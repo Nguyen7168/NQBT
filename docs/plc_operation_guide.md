@@ -129,6 +129,7 @@ Trong đó:
 - [ ] Trigger OFF đủ dài hơn `trigger_low_stable_ms`.
 - [ ] `trigger_cooldown_ms` đủ để chặn rung xung.
 - [ ] `model_stable_ms` phù hợp chống nhiễu thanh ghi mode/model.
+- [ ] `timeouts.response_ms` phù hợp với độ trễ mạng/PLC (mặc định 1000 ms).
 
 ## 6.3 Test tuần tự bắt buộc
 1. Test RUN: 3 cycle liên tiếp, xác nhận ACK clear ổn định.
@@ -141,6 +142,7 @@ Trong đó:
 - [ ] Kiểm tra trigger có rung liên tục không.
 - [ ] Kiểm tra `BUSY`/`DONE` có về 0 sau mỗi cycle không.
 - [ ] Kiểm tra log timeout `cycle_ms` / `ack_clear_ms`.
+- [ ] Nếu gặp `PLC trigger polling failed: Timeout waiting for PLC response...`, tăng `timeouts.response_ms` hoặc tăng `trigger_poll_interval_ms` / `sample_trigger_poll_interval_ms` để giảm tần suất retry/log.
 
 ---
 
