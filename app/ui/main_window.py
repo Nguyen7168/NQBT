@@ -674,7 +674,14 @@ class MainWindow(QtWidgets.QMainWindow):
     @QtCore.pyqtSlot(int)
     def _on_plc_mode_changed(self, mode_value: int) -> None:
         mode_map = {1: OperatingMode.RUN, 2: OperatingMode.SAMPLE, 3: OperatingMode.MIRROR}
-        target = mode_map.get(int(mode_value), OperatingMode.RUN)
+        target = mode_map.get(int(mode_value))
+        if target is None:
+            self._show_rate_limited_status(
+                "plc_mode_invalid",
+                f"Ignored invalid PLC mode value: {mode_value}",
+                1000,
+            )
+            return
         self._requested_mode = target
         if self._cycle_request_inflight or self.plc.state.busy:
             self.statusBar().showMessage(f"PLC mode {target.name} queued until cycle complete", 3000)
@@ -813,18 +820,14 @@ class MainWindow(QtWidgets.QMainWindow):
 
     @QtCore.pyqtSlot(int)
     def _on_plc_model_code_changed(self, model_code: int) -> None:
-        # Convention: 0 means "no selection / reset request" from PLC.
-        # Keep current model, do not raise error, and reflect current code to PLC.
-        if int(model_code) == 0:
-            self._pending_recipe_code = None
-            model_current_addr = getattr(self.config.plc.addr, "model_current_word", None)
-            if model_current_addr and self._current_recipe_code is not None:
-                try:
-                    self.plc.write_word(model_current_addr, int(self._current_recipe_code))
-                    self.plc.set_error(False)
-                except PLCError as exc:
-                    self.statusBar().showMessage(f"Failed to keep current model code: {exc}", 5000)
-            self.statusBar().showMessage("PLC model select reset (0): keep current model", 3000)
+        valid_codes = set(self._recipe_by_code.keys())
+        model_code = int(model_code)
+        if model_code not in valid_codes:
+            self._show_rate_limited_status(
+                "plc_model_invalid",
+                f"Ignored invalid PLC model code: {model_code}",
+                1000,
+            )
             return
 
         if model_code == self._current_recipe_code:
