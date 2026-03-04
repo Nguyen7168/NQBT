@@ -342,6 +342,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 high_stable_ms=self.config.plc.trigger_high_stable_ms,
                 low_stable_ms=self.config.plc.trigger_low_stable_ms,
                 cooldown_ms=self.config.plc.trigger_cooldown_ms,
+                error_backoff_ms=self.config.plc.poll_error_backoff_ms,
             )
             self.trigger_worker.triggered.connect(self._handle_trigger)
             self.trigger_worker.start()
@@ -355,26 +356,14 @@ class MainWindow(QtWidgets.QMainWindow):
                 mode_addr,
                 poll_interval=mode_poll_interval,
                 stable_ms=self.config.plc.model_stable_ms,
+                error_backoff_ms=self.config.plc.poll_error_backoff_ms,
                 parent=self,
             )
             self.mode_select_worker.mode_changed.connect(self._on_plc_mode_changed)
             self.mode_select_worker.start()
 
         self.sample_trigger_worker = None
-        sample_trigger_addr = getattr(self.config.plc.addr, "sample_trigger", None)
-        if sample_trigger_addr:
-            sample_poll_interval = max(self.config.plc.sample_trigger_poll_interval_ms, 1) / 1000.0
-            self.sample_trigger_worker = PlcTriggerWorker(
-                self.plc,
-                trigger_address=sample_trigger_addr,
-                poll_interval=sample_poll_interval,
-                min_interval_ms=self.config.plc.trigger_min_interval_ms,
-                high_stable_ms=self.config.plc.trigger_high_stable_ms,
-                low_stable_ms=self.config.plc.trigger_low_stable_ms,
-                cooldown_ms=self.config.plc.trigger_cooldown_ms,
-            )
-            self.sample_trigger_worker.triggered.connect(self._handle_sample_trigger)
-            self.sample_trigger_worker.start()
+        self._refresh_sample_trigger_worker()
 
         self.model_select_worker = None
         model_select_addr = getattr(self.config.plc.addr, "model_select_word", None)
@@ -385,6 +374,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 model_select_addr,
                 poll_interval=model_poll_interval,
                 stable_ms=self.config.plc.model_stable_ms,
+                error_backoff_ms=self.config.plc.poll_error_backoff_ms,
                 parent=self,
             )
             self.model_select_worker.model_code_changed.connect(self._on_plc_model_code_changed)
@@ -609,6 +599,39 @@ class MainWindow(QtWidgets.QMainWindow):
             4000,
         )
 
+    def _start_sample_trigger_worker(self) -> None:
+        if self.sample_trigger_worker is not None:
+            return
+        sample_trigger_addr = getattr(self.config.plc.addr, "sample_trigger", None)
+        if not sample_trigger_addr:
+            return
+        sample_poll_interval = max(self.config.plc.sample_trigger_poll_interval_ms, 1) / 1000.0
+        worker = PlcTriggerWorker(
+            self.plc,
+            trigger_address=sample_trigger_addr,
+            poll_interval=sample_poll_interval,
+            min_interval_ms=self.config.plc.trigger_min_interval_ms,
+            high_stable_ms=self.config.plc.trigger_high_stable_ms,
+            low_stable_ms=self.config.plc.trigger_low_stable_ms,
+            cooldown_ms=self.config.plc.trigger_cooldown_ms,
+            error_backoff_ms=self.config.plc.poll_error_backoff_ms,
+        )
+        worker.triggered.connect(self._handle_sample_trigger)
+        worker.start()
+        self.sample_trigger_worker = worker
+
+    def _stop_sample_trigger_worker(self) -> None:
+        if self.sample_trigger_worker is None:
+            return
+        self.sample_trigger_worker.stop()
+        self.sample_trigger_worker = None
+
+    def _refresh_sample_trigger_worker(self) -> None:
+        if self._current_mode == OperatingMode.SAMPLE:
+            self._start_sample_trigger_worker()
+        else:
+            self._stop_sample_trigger_worker()
+
     def _sync_mode_actions(self) -> None:
         mapping = {
             OperatingMode.RUN: self.mode_run_action,
@@ -639,6 +662,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.status_mode.setText(f"Mode: {mode.name}")
         self.runtime_mode_label.setText(mode.name)
         self._sync_mode_actions()
+        self._refresh_sample_trigger_worker()
         self._write_mode_current()
 
     def _apply_requested_mode_if_idle(self) -> None:

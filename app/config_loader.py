@@ -59,6 +59,7 @@ class PlcConfig:
     model_poll_interval_ms: int = 200
     model_stable_ms: int = 200
     sample_trigger_poll_interval_ms: int = 50
+    poll_error_backoff_ms: int = 1000
 
 
 @dataclass
@@ -226,6 +227,7 @@ def load_config(path: str | Path) -> AppConfig:
         model_poll_interval_ms=int(plc_raw.get("model_poll_interval_ms", 200)),
         model_stable_ms=int(plc_raw.get("model_stable_ms", 200)),
         sample_trigger_poll_interval_ms=int(plc_raw.get("sample_trigger_poll_interval_ms", 50)),
+        poll_error_backoff_ms=int(plc_raw.get("poll_error_backoff_ms", 1000)),
     )
 
     models_raw = _require(raw, "models")

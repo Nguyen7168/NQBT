@@ -57,6 +57,7 @@ Tài liệu này là bản vận hành chuẩn giữa **PLC ↔ App** để trá
 | MIRROR | Có hiệu lực | Bỏ qua | Chụp camera + đo đường kính + ghi `mirror_result_word` |
 
 ### Lưu ý quan trọng cho SAMPLE
+- `sample_trigger` chỉ được poll khi app đang ở mode `SAMPLE`; mode `RUN/MIRROR` sẽ dừng worker sample trigger để giảm tải PLC.
 - Nếu không tìm thấy ảnh mẫu theo mã hàng: app cảnh báo, không crash.
 - PLC nên giám sát timeout tại tầng ladder để tránh chờ vô hạn.
 - App hiện tại tìm ảnh theo thứ tự:
@@ -130,6 +131,7 @@ Trong đó:
 - [ ] `trigger_cooldown_ms` đủ để chặn rung xung.
 - [ ] `model_stable_ms` phù hợp chống nhiễu thanh ghi mode/model.
 - [ ] `timeouts.response_ms` phù hợp với độ trễ mạng/PLC (mặc định 1000 ms).
+- [ ] `poll_error_backoff_ms` phù hợp để retry nhanh/chậm sau lỗi poll (mặc định 1000 ms).
 
 ## 6.3 Test tuần tự bắt buộc
 1. Test RUN: 3 cycle liên tiếp, xác nhận ACK clear ổn định.
@@ -142,7 +144,7 @@ Trong đó:
 - [ ] Kiểm tra trigger có rung liên tục không.
 - [ ] Kiểm tra `BUSY`/`DONE` có về 0 sau mỗi cycle không.
 - [ ] Kiểm tra log timeout `cycle_ms` / `ack_clear_ms`.
-- [ ] Nếu gặp `PLC trigger polling failed: Timeout waiting for PLC response...`, tăng `timeouts.response_ms` hoặc tăng `trigger_poll_interval_ms` / `sample_trigger_poll_interval_ms` để giảm tần suất retry/log.
+- [ ] Nếu gặp `PLC trigger polling failed: Timeout waiting for PLC response...`, tinh chỉnh `timeouts.response_ms` và/hoặc `poll_error_backoff_ms` để cân bằng tốc độ retry và tải log.
 
 ---
 
