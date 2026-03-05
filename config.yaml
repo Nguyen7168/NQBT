@@ -75,7 +75,7 @@ models:
   active_recipe_code: 1
   glass_recipes:
     - code: 1
-      path: "app/models/gls_epoch_124_loss_0_1330_271img.pth"
+      path: "app/models/23-233HA-E.pth"
       name: "23-233HA-E"
       glass_threshold: 0.98
     - code: 2
