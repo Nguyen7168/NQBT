@@ -333,19 +333,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.save_thread.start()
 
         self.trigger_worker = None
-        if self.config.plc.enable_plc_trigger:
-            poll_interval = max(self.config.plc.trigger_poll_interval_ms, 1) / 1000.0
-            self.trigger_worker = PlcTriggerWorker(
-                self.plc,
-                poll_interval=poll_interval,
-                min_interval_ms=self.config.plc.trigger_min_interval_ms,
-                high_stable_ms=self.config.plc.trigger_high_stable_ms,
-                low_stable_ms=self.config.plc.trigger_low_stable_ms,
-                cooldown_ms=self.config.plc.trigger_cooldown_ms,
-                error_backoff_ms=self.config.plc.poll_error_backoff_ms,
-            )
-            self.trigger_worker.triggered.connect(self._handle_plc_trigger)
-            self.trigger_worker.start()
+        self._refresh_main_trigger_worker()
 
         self.mode_select_worker = None
         mode_addr = getattr(self.config.plc.addr, "mode_request_word", None)
@@ -637,6 +625,35 @@ class MainWindow(QtWidgets.QMainWindow):
         worker.start()
         self.sample_trigger_worker = worker
 
+    def _start_main_trigger_worker(self) -> None:
+        if not self.config.plc.enable_plc_trigger or self.trigger_worker is not None:
+            return
+        poll_interval = max(self.config.plc.trigger_poll_interval_ms, 1) / 1000.0
+        worker = PlcTriggerWorker(
+            self.plc,
+            poll_interval=poll_interval,
+            min_interval_ms=self.config.plc.trigger_min_interval_ms,
+            high_stable_ms=self.config.plc.trigger_high_stable_ms,
+            low_stable_ms=self.config.plc.trigger_low_stable_ms,
+            cooldown_ms=self.config.plc.trigger_cooldown_ms,
+            error_backoff_ms=self.config.plc.poll_error_backoff_ms,
+        )
+        worker.triggered.connect(self._handle_plc_trigger)
+        worker.start()
+        self.trigger_worker = worker
+
+    def _stop_main_trigger_worker(self) -> None:
+        if self.trigger_worker is None:
+            return
+        self.trigger_worker.stop()
+        self.trigger_worker = None
+
+    def _refresh_main_trigger_worker(self) -> None:
+        if self._current_mode == OperatingMode.SAMPLE:
+            self._stop_main_trigger_worker()
+        else:
+            self._start_main_trigger_worker()
+
     def _stop_sample_trigger_worker(self) -> None:
         if self.sample_trigger_worker is None:
             return
@@ -679,6 +696,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.status_mode.setText(f"Mode: {mode.name}")
         self.runtime_mode_label.setText(mode.name)
         self._sync_mode_actions()
+        self._refresh_main_trigger_worker()
         self._refresh_sample_trigger_worker()
         self._write_mode_current()
 
