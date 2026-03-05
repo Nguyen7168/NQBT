@@ -21,7 +21,7 @@ plc:
     ready: "DM1621"
     run: "DM1620"
     trigger: "MR64312"
-    ack: "EM7002"
+    ack: "DM1644"
     result_bits_start_word: "EM8901"
     model_select_word: "DM1630"
     model_current_word: "DM1624"
