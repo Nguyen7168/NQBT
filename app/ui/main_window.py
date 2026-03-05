@@ -178,10 +178,13 @@ class MainWindow(QtWidgets.QMainWindow):
         right_tabs.addTab(plc_tab, "PLC Monitor")
         plc_layout = QtWidgets.QVBoxLayout(plc_tab)
 
+        plc_content = QtWidgets.QWidget()
+        plc_content_layout = QtWidgets.QVBoxLayout(plc_content)
+
         self.plc_monitor_toggle = QtWidgets.QCheckBox("Enable PLC Monitor")
         self.plc_monitor_status = QtWidgets.QLabel("Monitor: Off")
-        plc_layout.addWidget(self.plc_monitor_toggle)
-        plc_layout.addWidget(self.plc_monitor_status)
+        plc_content_layout.addWidget(self.plc_monitor_toggle)
+        plc_content_layout.addWidget(self.plc_monitor_status)
 
         tx_group = QtWidgets.QGroupBox("TX (App → PLC)")
         tx_form = QtWidgets.QFormLayout(tx_group)
@@ -201,7 +204,7 @@ class MainWindow(QtWidgets.QMainWindow):
         tx_form.addRow("Mode current word", self.tx_mode_current_label)
         tx_form.addRow("Model current word", self.tx_model_current_label)
         tx_form.addRow("Mirror result word", self.tx_mirror_result_label)
-        plc_layout.addWidget(tx_group)
+        plc_content_layout.addWidget(tx_group)
 
         rx_group = QtWidgets.QGroupBox("RX (PLC → App)")
         rx_form = QtWidgets.QFormLayout(rx_group)
@@ -215,7 +218,7 @@ class MainWindow(QtWidgets.QMainWindow):
         rx_form.addRow("ACK", self.rx_ack_label)
         rx_form.addRow("Mode request word", self.rx_mode_request_label)
         rx_form.addRow("Model select word", self.rx_model_select_label)
-        plc_layout.addWidget(rx_group)
+        plc_content_layout.addWidget(rx_group)
 
         self.plc_results_table = QtWidgets.QTableWidget(self.config.layout.count, 2)
         self.plc_results_table.setHorizontalHeaderLabels(["Index", "Result"])
@@ -224,15 +227,25 @@ class MainWindow(QtWidgets.QMainWindow):
         self.plc_results_table.verticalHeader().setSectionResizeMode(QtWidgets.QHeaderView.Fixed)
         self.plc_results_table.setSizeAdjustPolicy(QtWidgets.QAbstractScrollArea.AdjustIgnored)
         self.plc_results_table.setWordWrap(False)
+        self.plc_results_table.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAsNeeded)
         for row in range(self.config.layout.count):
             self.plc_results_table.setItem(row, 0, QtWidgets.QTableWidgetItem(str(row + 1)))
             self.plc_results_table.setItem(row, 1, QtWidgets.QTableWidgetItem("-"))
         self._set_table_row_heights(self.plc_results_table)
-        plc_layout.addWidget(self.plc_results_table)
+        plc_content_layout.addWidget(self.plc_results_table)
 
         self.plc_monitor_error = QtWidgets.QLabel("")
         self.plc_monitor_error.setStyleSheet("color: red;")
-        plc_layout.addWidget(self.plc_monitor_error)
+        plc_content_layout.addWidget(self.plc_monitor_error)
+        plc_content_layout.addStretch(1)
+
+        plc_scroll = QtWidgets.QScrollArea()
+        plc_scroll.setWidgetResizable(True)
+        plc_scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
+        plc_scroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+        plc_scroll.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
+        plc_scroll.setWidget(plc_content)
+        plc_layout.addWidget(plc_scroll)
 
         options_menu = self.menuBar().addMenu("File")
         self.save_images_action = QtWidgets.QAction("Save processed images", self)
@@ -333,19 +346,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.save_thread.start()
 
         self.trigger_worker = None
-        if self.config.plc.enable_plc_trigger:
-            poll_interval = max(self.config.plc.trigger_poll_interval_ms, 1) / 1000.0
-            self.trigger_worker = PlcTriggerWorker(
-                self.plc,
-                poll_interval=poll_interval,
-                min_interval_ms=self.config.plc.trigger_min_interval_ms,
-                high_stable_ms=self.config.plc.trigger_high_stable_ms,
-                low_stable_ms=self.config.plc.trigger_low_stable_ms,
-                cooldown_ms=self.config.plc.trigger_cooldown_ms,
-                error_backoff_ms=self.config.plc.poll_error_backoff_ms,
-            )
-            self.trigger_worker.triggered.connect(self._handle_plc_trigger)
-            self.trigger_worker.start()
+        self._refresh_main_trigger_worker()
 
         self.mode_select_worker = None
         mode_addr = getattr(self.config.plc.addr, "mode_request_word", None)
@@ -637,6 +638,35 @@ class MainWindow(QtWidgets.QMainWindow):
         worker.start()
         self.sample_trigger_worker = worker
 
+    def _start_main_trigger_worker(self) -> None:
+        if not self.config.plc.enable_plc_trigger or self.trigger_worker is not None:
+            return
+        poll_interval = max(self.config.plc.trigger_poll_interval_ms, 1) / 1000.0
+        worker = PlcTriggerWorker(
+            self.plc,
+            poll_interval=poll_interval,
+            min_interval_ms=self.config.plc.trigger_min_interval_ms,
+            high_stable_ms=self.config.plc.trigger_high_stable_ms,
+            low_stable_ms=self.config.plc.trigger_low_stable_ms,
+            cooldown_ms=self.config.plc.trigger_cooldown_ms,
+            error_backoff_ms=self.config.plc.poll_error_backoff_ms,
+        )
+        worker.triggered.connect(self._handle_plc_trigger)
+        worker.start()
+        self.trigger_worker = worker
+
+    def _stop_main_trigger_worker(self) -> None:
+        if self.trigger_worker is None:
+            return
+        self.trigger_worker.stop()
+        self.trigger_worker = None
+
+    def _refresh_main_trigger_worker(self) -> None:
+        if self._current_mode == OperatingMode.SAMPLE:
+            self._stop_main_trigger_worker()
+        else:
+            self._start_main_trigger_worker()
+
     def _stop_sample_trigger_worker(self) -> None:
         if self.sample_trigger_worker is None:
             return
@@ -679,6 +709,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.status_mode.setText(f"Mode: {mode.name}")
         self.runtime_mode_label.setText(mode.name)
         self._sync_mode_actions()
+        self._refresh_main_trigger_worker()
         self._refresh_sample_trigger_worker()
         self._write_mode_current()
 
