@@ -266,8 +266,8 @@ class AsciiTcpClient(BasePLCClient):
     """Simple ASCII TCP client using 'RD <addr>\r' and 'WR <addr> <val>\r'.
 
     Interprets any non-zero read value as True. For writing result arrays,
-    it writes sequential registers by incrementing the numeric suffix.
-    Example: start 'R160' -> writes R160, R161, ... as 1/0.
+    it packs flags into 16-bit words starting at the configured word.
+    Example: start 'EM7901' -> flags 1..16 map to EM7901 bits 00..15.
     """
 
     def __init__(self, config: PlcConfig):
@@ -327,13 +327,37 @@ class AsciiTcpClient(BasePLCClient):
         self._send_cmd(f"WR {address} {1 if value else 0}")
 
     def write_result_bits(self, start_word: str, bits: Sequence[bool]) -> None:
+        """Write result flags packed into 16-bit words.
+
+        Mapping rule (little-endian bit order per word):
+        - Flag i (1-based) maps to bit ((i-1) % 16) of word (base + (i-1)//16)
+
+        Example with start_word EM7901:
+        - flags 1..16  -> EM7901.00 .. EM7901.15
+        - flags 17..32 -> EM7902.00 .. EM7902.15
+
+        Unused bits in the final partial word are written as 0.
+        """
         m = self._addr_re.match(start_word)
         if not m:
             raise PLCError(f"Unsupported ASCII start address: {start_word}")
         prefix, base = m.group(1), int(m.group(2))
-        for idx, bit in enumerate(bits):
-            addr = f"{prefix}{base + idx}"
-            self.write_bit(addr, bit)
+        total = len(bits)
+        if total == 0:
+            return
+
+        word_count = (total + 15) // 16
+        for word_idx in range(word_count):
+            packed = 0
+            base_idx = word_idx * 16
+            for bit_idx in range(16):
+                src_idx = base_idx + bit_idx
+                if src_idx >= total:
+                    break
+                if bits[src_idx]:
+                    packed |= 1 << bit_idx
+            addr = f"{prefix}{base + word_idx}"
+            self.write_word(addr, packed)
 
     def read_word(self, address: str) -> int:
         resp = self._send_cmd(f"RD {address}")

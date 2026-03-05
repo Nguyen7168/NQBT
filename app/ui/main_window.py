@@ -344,7 +344,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 cooldown_ms=self.config.plc.trigger_cooldown_ms,
                 error_backoff_ms=self.config.plc.poll_error_backoff_ms,
             )
-            self.trigger_worker.triggered.connect(self._handle_trigger)
+            self.trigger_worker.triggered.connect(self._handle_plc_trigger)
             self.trigger_worker.start()
 
         self.mode_select_worker = None
@@ -496,6 +496,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     @QtCore.pyqtSlot()
     def _handle_trigger(self) -> None:
+        """Handle manual trigger requests."""
         if self._current_mode == OperatingMode.MIRROR:
             self._start_cycle_method("run_mirror_cycle")
             return
@@ -507,6 +508,22 @@ class MainWindow(QtWidgets.QMainWindow):
             self._start_cycle_method("run_sample_cycle", sample_path)
             return
         self._start_cycle_method("run_cycle")
+
+    @QtCore.pyqtSlot()
+    def _handle_plc_trigger(self) -> None:
+        """Handle the main PLC trigger bit.
+
+        In SAMPLE mode, inspection must be started only by `sample_trigger`,
+        so the main trigger is ignored.
+        """
+        if self._current_mode == OperatingMode.SAMPLE:
+            self._show_rate_limited_status(
+                "plc_trigger_ignored_in_sample",
+                "Ignored main PLC trigger in SAMPLE mode",
+                1000,
+            )
+            return
+        self._handle_trigger()
 
     @QtCore.pyqtSlot()
     def _handle_sample_trigger(self) -> None:

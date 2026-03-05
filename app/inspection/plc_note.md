@@ -73,21 +73,19 @@ if self.client.read_bit("W100.00"):
 
 ## 2.3 `write_result_bits(start_word: str, bits: Sequence[bool])`
 **Mục đích:**  
-Ghi **nhiều bit liên tục** (thường là OK/NG cho từng ROI) bắt đầu từ 1 word.
+Ghi mảng kết quả OK/NG theo quy tắc **pack bit vào word 16-bit**, bắt đầu từ `start_word`.
 
-Ví dụ:  
-Start word: `W160`  
-Input bits: `[True, False, True]`
+**Quy tắc mapping (bit order):**
+- Cờ thứ `i` (đánh số từ 1) → nằm ở:
+  - word offset: `(i - 1) // 16`
+  - bit offset: `(i - 1) % 16`
+- Cờ đầu tiên map vào bit thấp `.00`.
 
-PLC sẽ ghi:
+Ví dụ: Start word `EM7901`
+- Cờ 1..16  → `EM7901.00 .. EM7901.15`
+- Cờ 17..32 → `EM7902.00 .. EM7902.15`
 
-```
-W160.00 = 1  
-W160.01 = 0  
-W160.02 = 1
-```
-
-**Đây là cách hiệu quả nhất để ghi nhiều kết quả OK/NG.**
+Khi số cờ không chia hết cho 16, các bit dư ở word cuối sẽ được ghi `0` để tránh giữ rác từ chu kỳ trước.
 
 ---
 

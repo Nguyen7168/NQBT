@@ -24,6 +24,15 @@ Tài liệu này là bản vận hành chuẩn giữa **PLC ↔ App** để trá
 | Mode current | `plc.addr.mode_current_word` | `DM1525` | App → PLC | Mode app đang chạy: 1/2/3 |
 | Mirror result | `plc.addr.mirror_result_word` | `EM1332` | App → PLC | Kết quả mirror: OK=1, NG=0 |
 
+### Mapping mảng kết quả `result_bits_start_word`
+- App ghi kết quả theo dạng **pack 16 bit/word**.
+- Quy tắc: cờ thứ `i` (1-based) map vào bit `((i-1) % 16)` của word `start + ((i-1) // 16)`.
+- Bit order: cờ đầu tiên nằm ở bit thấp `.00`.
+- Ví dụ `start=EM7901`:
+  - Cờ 1..16  → `EM7901.00 .. EM7901.15`
+  - Cờ 17..32 → `EM7902.00 .. EM7902.15`
+- Bit dư ở word cuối (nếu tổng cờ không chia hết 16) luôn được ghi `0`.
+
 ---
 
 ## 2) Mode State Machine
