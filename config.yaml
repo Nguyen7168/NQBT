@@ -24,7 +24,7 @@ plc:
     run: "DM1520"
     trigger: "MR62500"
     ack: "DM1544"
-    result_bits_start_word: "EM7901"
+    result_bits_start_word: "DM30"
     model_select_word: "DM1530"
     model_current_word: "DM1524"
     sample_trigger: "MR87900"
