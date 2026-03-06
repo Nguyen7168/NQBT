@@ -170,6 +170,7 @@ class AppConfig:
     models: ModelConfig
     io: IOConfig
     layout: LayoutConfig
+    app_title: Optional[str] = None
     window: Optional[WindowConfig] = None
     sample_image_root: str = "samples"
     mirror_blur_kernel: int = 3
@@ -284,6 +285,7 @@ def load_config(path: str | Path) -> AppConfig:
         models=models,
         io=io_cfg,
         layout=layout,
+        app_title=(str(raw.get("app_title")).strip() if raw.get("app_title") is not None else None),
         window=window_cfg,
         sample_image_root=str(raw.get("sample_image_root", "samples")),
         mirror_blur_kernel=int(raw.get("mirror_blur_kernel", 3)),
