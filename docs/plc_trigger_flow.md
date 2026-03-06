@@ -108,7 +108,34 @@
 
 ---
 
-## 6) Tham chiếu
+- **Polling trigger/model/mode lỗi truyền thông**:
+  - Worker sleep `poll_error_backoff_ms` rồi retry.
+
+## 6) Quy tắc ACK khuyến nghị khi lập trình PLC
+
+- ✅ **Khuyến nghị chuẩn:** bật `ACK=1` khi thấy `DONE=1` (sau khi PLC đã đọc xong output).
+- ⚠️ **Không nên** dùng điều kiện `DONE=1 OR ERROR=1` làm trigger ACK chính.
+
+### Vì sao nên bám theo DONE?
+
+1. Ở RUN/SAMPLE, cả thành công và lỗi cycle đều đi qua `DONE=1`:
+   - Thành công: `DONE=True`, `ERROR=False`.
+   - Lỗi: `ERROR=True` rồi cũng `DONE=True`.
+2. Ở MIRROR lỗi, code hiện tại vẫn có thể `DONE=True` nhưng `ERROR=False`.
+   - Nếu PLC ACK dựa vào `ERROR`, có thể bỏ lỡ ACK dù cycle đã hoàn tất.
+3. `finalize_cycle()` của app được thiết kế theo state machine: chờ ACK ON → clear cờ → chờ ACK OFF → set READY lại.
+   - Vì vậy ACK nên bám tín hiệu “chu kỳ hoàn tất” (`DONE`) để đồng bộ chắc chắn.
+
+### Mẫu logic ladder đề xuất
+
+1. Chờ `DONE=1`.
+2. Đọc output cần thiết (result bits / mirror result / error bit để phân loại).
+3. Bật `ACK=1`.
+4. Khi thấy `BUSY=0` và `DONE=0`, hạ `ACK=0`.
+
+---
+
+## 7) Tham chiếu
 - Luồng handshake thực thi: `app/inspection/plc_client.py` (`finalize_cycle`, `wait_for_ack_clear`).
 - Luồng cycle & xử lý lỗi: `app/inspection/workers.py` (`run_cycle`, `run_sample_cycle`).
 - Tài liệu vận hành tổng hợp: `docs/plc_operation_guide.md`.
