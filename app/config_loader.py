@@ -153,6 +153,15 @@ class LayoutConfig:
     ws_dist_mask_size: int = 5
     ws_min_area_px: int = 2000
     ws_max_contour_pts: int = 800
+    # Overlay index text (number at top-left of each detected part)
+    # mode: "auto" derives scale from ROI width; "fixed" uses fixed scale/thickness.
+    overlay_index_text_mode: str = "auto"
+    overlay_index_font_scale: float = 1.0
+    overlay_index_thickness: int = 2
+    overlay_index_outline_extra: int = 2
+    overlay_index_min_scale: float = 0.5
+    overlay_index_max_scale: float = 1.2
+    overlay_index_scale_divisor: float = 180.0
 
 
 @dataclass
