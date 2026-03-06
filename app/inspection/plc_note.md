@@ -264,7 +264,7 @@ timeouts:
 
 ### `enable_plc_trigger`
 - Bật/tắt hoàn toàn luồng nhận trigger từ PLC.
-- `true`: app nhận trigger tự động từ PLC.
+- `true`: app nhận trigger tự động từ PLC, nhưng chỉ poll `trigger` chính ở mode `RUN`/`MIRROR`; khi vào `SAMPLE` thì main trigger worker tự dừng.
 - `false`: app không nhận trigger PLC (hữu ích khi debug/manual test).
 
 ## 7.2 Nhóm chọn model (recipe)
@@ -282,6 +282,7 @@ timeouts:
 ### `sample_trigger_poll_interval_ms`
 - Chu kỳ app đọc bit `sample_trigger` từ PLC (đơn vị ms).
 - Worker `sample_trigger` chỉ chạy khi app đang ở mode `SAMPLE`; khi mode khác, worker sẽ dừng để giảm tải poll PLC.
+- Đồng thời ở mode `SAMPLE`, worker `trigger` chính cũng dừng poll nên app chỉ nhận trigger từ `sample_trigger`.
 
 ### `poll_error_backoff_ms`
 - Thời gian sleep sau mỗi lần poll lỗi (áp dụng chung cho trigger/model/mode/sample-trigger worker).
