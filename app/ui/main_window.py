@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from typing import List, Optional
 from pathlib import Path
 
@@ -73,6 +74,21 @@ class MainWindow(QtWidgets.QMainWindow):
         if window_cfg and window_cfg.x is not None and window_cfg.y is not None:
             self.move(window_cfg.x, window_cfg.y)
 
+    def _format_addr_label(self, name: str, address: Optional[str]) -> str:
+        return f"{name} ({address})" if address else f"{name} (N/A)"
+
+    def _result_index_with_address(self, index_1_based: int) -> str:
+        start_word = (self.config.plc.addr.result_bits_start_word or "").strip()
+        match = re.match(r"^([A-Za-z]+)(\d+)$", start_word)
+        if not match:
+            return str(index_1_based)
+        prefix, base_text = match.groups()
+        base = int(base_text)
+        offset = max(0, index_1_based - 1)
+        word = base + (offset // 16)
+        bit = offset % 16
+        return f"{index_1_based} ({prefix}{word}.{bit:02d})"
+
     def _init_ui(self) -> None:
         window_cfg = getattr(self.config, "window", None)
         configured_width = window_cfg.width if window_cfg and window_cfg.width else None
@@ -89,6 +105,9 @@ class MainWindow(QtWidgets.QMainWindow):
         inspection_tab = QtWidgets.QWidget()
         right_tabs.addTab(inspection_tab, "Inspection")
         inspection_layout = QtWidgets.QVBoxLayout(inspection_tab)
+
+        inspection_content = QtWidgets.QWidget()
+        inspection_content_layout = QtWidgets.QVBoxLayout(inspection_content)
 
         summary_bar = QtWidgets.QHBoxLayout()
 
@@ -140,7 +159,7 @@ class MainWindow(QtWidgets.QMainWindow):
         model_layout.addWidget(actions_group)
 
         summary_bar.addWidget(model_widget, stretch=2)
-        inspection_layout.addLayout(summary_bar)
+        inspection_content_layout.addLayout(summary_bar)
 
         self.image_label = QtWidgets.QLabel()
         min_image_width = 960
@@ -153,7 +172,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.image_label.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
         self.image_label.setAlignment(QtCore.Qt.AlignCenter)
         self.image_label.setStyleSheet("background-color: #1e1e1e; border: 1px solid #555;")
-        inspection_layout.addWidget(self.image_label, stretch=7)
+        inspection_content_layout.addWidget(self.image_label, stretch=7)
 
         self.result_table = QtWidgets.QTableWidget(0, 3)
         self.result_table.setHorizontalHeaderLabels(["Index", "Score", "Status"])
@@ -172,8 +191,18 @@ class MainWindow(QtWidgets.QMainWindow):
         table_scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
         table_scroll.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
         table_scroll.setFixedHeight(table_height + 2)
+        table_scroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+        table_scroll.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAsNeeded)
         table_scroll.setWidget(self.result_table)
-        inspection_layout.addWidget(table_scroll, stretch=0)
+        inspection_content_layout.addWidget(table_scroll, stretch=0)
+
+        inspection_scroll = QtWidgets.QScrollArea()
+        inspection_scroll.setWidgetResizable(True)
+        inspection_scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
+        inspection_scroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+        inspection_scroll.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
+        inspection_scroll.setWidget(inspection_content)
+        inspection_layout.addWidget(inspection_scroll)
 
         plc_tab = QtWidgets.QWidget()
         right_tabs.addTab(plc_tab, "PLC Monitor")
@@ -197,14 +226,15 @@ class MainWindow(QtWidgets.QMainWindow):
         self.tx_mode_current_label = QtWidgets.QLabel("-")
         self.tx_model_current_label = QtWidgets.QLabel("-")
         self.tx_mirror_result_label = QtWidgets.QLabel("-")
-        tx_form.addRow("Busy", self.tx_busy_label)
-        tx_form.addRow("Done", self.tx_done_label)
-        tx_form.addRow("Error", self.tx_error_label)
-        tx_form.addRow("Ready", self.tx_ready_label)
-        tx_form.addRow("Run", self.tx_run_label)
-        tx_form.addRow("Mode current word", self.tx_mode_current_label)
-        tx_form.addRow("Model current word", self.tx_model_current_label)
-        tx_form.addRow("Mirror result word", self.tx_mirror_result_label)
+        addr = self.config.plc.addr
+        tx_form.addRow(self._format_addr_label("Busy", addr.busy), self.tx_busy_label)
+        tx_form.addRow(self._format_addr_label("Done", addr.done), self.tx_done_label)
+        tx_form.addRow(self._format_addr_label("Error", addr.error), self.tx_error_label)
+        tx_form.addRow(self._format_addr_label("Ready", addr.ready), self.tx_ready_label)
+        tx_form.addRow(self._format_addr_label("Run", addr.run), self.tx_run_label)
+        tx_form.addRow(self._format_addr_label("Mode current word", addr.mode_current_word), self.tx_mode_current_label)
+        tx_form.addRow(self._format_addr_label("Model current word", addr.model_current_word), self.tx_model_current_label)
+        tx_form.addRow(self._format_addr_label("Mirror result word", addr.mirror_result_word), self.tx_mirror_result_label)
         plc_content_layout.addWidget(tx_group)
 
         rx_group = QtWidgets.QGroupBox("RX (PLC → App)")
@@ -214,11 +244,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self.rx_ack_label = QtWidgets.QLabel("-")
         self.rx_mode_request_label = QtWidgets.QLabel("-")
         self.rx_model_select_label = QtWidgets.QLabel("-")
-        rx_form.addRow("Trigger", self.rx_trigger_label)
-        rx_form.addRow("Sample trigger", self.rx_sample_trigger_label)
-        rx_form.addRow("ACK", self.rx_ack_label)
-        rx_form.addRow("Mode request word", self.rx_mode_request_label)
-        rx_form.addRow("Model select word", self.rx_model_select_label)
+        rx_form.addRow(self._format_addr_label("Trigger", addr.trigger), self.rx_trigger_label)
+        rx_form.addRow(self._format_addr_label("Sample trigger", addr.sample_trigger), self.rx_sample_trigger_label)
+        rx_form.addRow(self._format_addr_label("ACK", addr.ack), self.rx_ack_label)
+        rx_form.addRow(self._format_addr_label("Mode request word", addr.mode_request_word), self.rx_mode_request_label)
+        rx_form.addRow(self._format_addr_label("Model select word", addr.model_select_word), self.rx_model_select_label)
         plc_content_layout.addWidget(rx_group)
 
         self.plc_results_table = QtWidgets.QTableWidget(self.config.layout.count, 2)
@@ -230,7 +260,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.plc_results_table.setWordWrap(False)
         self.plc_results_table.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAsNeeded)
         for row in range(self.config.layout.count):
-            self.plc_results_table.setItem(row, 0, QtWidgets.QTableWidgetItem(str(row + 1)))
+            self.plc_results_table.setItem(row, 0, QtWidgets.QTableWidgetItem(self._result_index_with_address(row + 1)))
             self.plc_results_table.setItem(row, 1, QtWidgets.QTableWidgetItem("-"))
         self._set_table_row_heights(self.plc_results_table)
         plc_content_layout.addWidget(self.plc_results_table)
