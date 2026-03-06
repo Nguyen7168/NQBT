@@ -10,7 +10,7 @@ window:
   x: 640
   y: 0
   width: 640
-  height: 900
+  height: 980
 
 plc:
   protocol: "ASCII_TCP"
@@ -24,7 +24,7 @@ plc:
     run: "DM1620"
     trigger: "MR64312"
     ack: "DM1644"
-    result_bits_start_word: "EM8901"
+    result_bits_start_word: "DM32"
     model_select_word: "DM1630"
     model_current_word: "DM1624"
     sample_trigger: "MR87901"
