@@ -1,3 +1,5 @@
+app_title: "Bearing Inspection"
+
 camera:
   serial: ""
   exposure_us: 8000
@@ -99,6 +101,13 @@ layout:
   ws_dist_mask_size: 5
   ws_min_area_px: 2000
   ws_max_contour_pts: 800
+  overlay_index_text_mode: "auto"  # auto|fixed
+  overlay_index_font_scale: 1.0      # used when mode=fixed
+  overlay_index_thickness: 2         # used when mode=fixed
+  overlay_index_outline_extra: 2     # outline thickness = thickness + extra
+  overlay_index_min_scale: 0.5       # used when mode=auto
+  overlay_index_max_scale: 1.2       # used when mode=auto
+  overlay_index_scale_divisor: 180.0 # used when mode=auto
 
 
 sample_image_root: "samples"

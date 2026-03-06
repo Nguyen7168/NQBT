@@ -1,167 +1,149 @@
-# Hệ Thống Inspection -- PLC ↔ App
+# PLC Trigger Flow (Theo code hiện tại)
 
-> Xem thêm tài liệu vận hành tổng hợp: `docs/plc_operation_guide.md`
+> Tài liệu ngắn gọn cho PLC team: tập trung vào trigger, ACK handshake, timeout và checklist triển khai nhanh.
 
+## 1) Trạng thái mode và nguồn trigger
 
-Hệ thống gồm 3 phần chính:
+| Mode | Main trigger (`plc.addr.trigger`) | Sample trigger (`plc.addr.sample_trigger`) | Hành vi cycle |
+|---|---|---|---|
+| RUN (1) | ✅ Có hiệu lực | ❌ Không chạy worker sample | Chụp camera + infer + ghi mảng OK/NG |
+| SAMPLE (2) | ❌ Worker main trigger tạm dừng | ✅ Có hiệu lực | Dùng ảnh mẫu + infer + ghi mảng OK/NG |
+| MIRROR (3) | ✅ Có hiệu lực | ❌ Không chạy worker sample | Chụp camera + đo mirror + ghi `mirror_result_word` |
 
-1.  Phát hiện PLC gửi trigger\
-2.  Chuyển trigger vào luồng xử lý ảnh (inspection cycle)\
-3.  Chạy vòng kiểm tra và trả kết quả lại PLC
-
-Ngoài ra còn có phần *handshake* để PLC biết khi nào hệ thống bận, khi
-nào xong.
-
-------------------------------------------------------------------------
-
-
-## 0️⃣ Trigger theo mode (thực tế hiện tại)
-
-- Mode RUN (`mode_current_word=1`): dùng trigger chính `plc.addr.trigger`.
-- Mode SAMPLE (`mode_current_word=2`):
-  - trigger chính vẫn có hiệu lực,
-  - trigger riêng SAMPLE `plc.addr.sample_trigger` cũng có hiệu lực.
-- Mode MIRROR (`mode_current_word=3`): dùng trigger chính; kết quả mirror ghi `plc.addr.mirror_result_word` (OK=1/NG=0).
-
-> Chi tiết đầy đủ xem `docs/plc_operation_guide.md`.
-
-------------------------------------------------------------------------
-
-## 1️⃣ PLC gửi tín hiệu Trigger → App phát hiện
-
-**File & hàm:**\
-`app/inspection/workers.py` → `PlcTriggerWorker.run`
-
-**Điều gì xảy ra?**
-
--   Thread chạy nền kiểm tra liên tục bit trigger:
-    `plc.config.addr.trigger`
--   Khi trigger = True:
-    -   Gửi signal: `triggered`
-    -   Chờ PLC reset trigger về False
-
-**Hiểu nhanh:**\
-"PLC ấn nút → thread phát hiện → emit signal lên UI".
-
-------------------------------------------------------------------------
-
-## 2️⃣ App nhận trigger → đưa vào vòng xử lý ảnh
-
-**File & hàm:**
-
--   `MainWindow._init_workers`
--   `MainWindow._handle_trigger`
-
-**Cơ chế:**
-
-Hai nguồn trigger: - Từ PLC: `PlcTriggerWorker.triggered` - Từ nút test
-UI: `trigger_manual`
-
-Cả hai đều gọi chung hàm: `_handle_trigger()`
-
-**Bên trong `_handle_trigger()`:**
-
--   Gọi `InspectionWorker.run_cycle`
-
--   Nhưng gọi qua:
-
-    ``` python
-    QtCore.QMetaObject.invokeMethod(worker, "run_cycle", Qt.QueuedConnection)
-    ```
-
-    → đảm bảo AI + camera chạy trong thread worker, không chạy trong UI
-    thread.
-
-**Hiểu nhanh:**\
-UI chỉ nhận trigger → đẩy task vào queue để worker chạy.
-
-------------------------------------------------------------------------
-
-## 3️⃣ Worker chạy vòng kiểm tra ảnh (Inspection Cycle)
-
-**File & hàm:**\
-`app/inspection/workers.py` → `InspectionWorker.run_cycle`
-
-**Bên trong run_cycle:**
-
-Có mutex đảm bảo **chỉ 1 cycle** chạy tại một thời điểm.
-
-**Trình tự:**
-
-1.  Bật cờ `busy` lên PLC\
-2.  Kết nối camera\
-3.  Chụp ảnh\
-4.  Crop ROI\
-5.  Chạy AI (anomaly + YOLO nếu bật)\
-6.  Tổng hợp OK/NG\
-7.  Ghi kết quả về PLC:
-    -   bit OK/NG\
-    -   clear lỗi cũ\
-    -   bật bit `done`\
-8.  Gửi signal `cycle_completed`
-    -   Nếu lỗi → bật NG, bật error, gửi `cycle_failed`\
-9.  Cuối cùng gọi `plc.finalize_cycle()` (handshake)
-
-------------------------------------------------------------------------
-
-## 4️⃣ Handshake PLC: chờ PLC xác nhận đã nhận kết quả
-
-**File & hàm:**\
-`app/inspection/plc_client.py` → `PlcController.finalize_cycle`
-
-**Mục đích:**\
-Đảm bảo App và PLC kết thúc cycle đúng chuẩn.
-
-**Trình tự:**
-
-1.  Chờ PLC bật ack trong `cycle_ms`\
-2.  Khi PLC đã ack:
-    -   Clear `done`
-    -   Clear `busy`
-    -   Clear `error`\
-3.  Chờ PLC tắt ack → cycle sẵn sàng chạy tiếp
-
-
-# Chu kỳ kiểm tra PLC – App
-
-## 1️⃣ Rung 1 – Gửi Trigger
-Khi PLC muốn yêu cầu 1 chu kỳ kiểm tra:
-- |----[ X0 : Nút/Điều kiện Trigger ]---------------------( TRIG )----|
-**TRIG** giữ mức **ON** cho đến khi App đọc và xử lý xong.
+**Điểm quan trọng:**
+- Ở mode `SAMPLE`, app chỉ nhận trigger từ `sample_trigger`.
+- Main trigger worker được start/stop theo mode để tránh poll thừa khi chạy SAMPLE.
 
 ---
 
-## 2️⃣ Rung 2 – Chờ App nhận Trigger và bật Busy
-App khi bắt đầu `run_cycle` sẽ bật `BUSY = 1`.  
-PLC chỉ chờ, không tác động.
-- |----[ TRIG ]--------------------------------------------(  )--------|
-(App sẽ bật Y0 = BUSY)
+## 2) Sơ đồ trạng thái inspection cycle (PLC ↔ App)
+
+```text
+[IDLE / READY=1]
+      |
+      | Trigger hợp lệ theo mode
+      v
+[START CYCLE]
+  App: BUSY=1, READY=0
+      |
+      v
+[PROCESSING]
+  - RUN/SAMPLE: capture(or sample image) + inference + write results
+  - MIRROR: mirror measurement + write mirror_result
+      |
+      +--> Success: DONE=1, ERROR=0
+      |
+      +--> Fail:    DONE=1, ERROR=1, results=NG all (RUN/SAMPLE)
+      v
+[WAIT ACK ON]
+  App chờ PLC bật ACK=1 (timeout: cycle_ms)
+      |
+      v
+[FINALIZE FLAGS]
+  App clear DONE=0, BUSY=0, ERROR=0 (nếu đang ON)
+      |
+      v
+[WAIT ACK OFF]
+  App chờ PLC hạ ACK=0 (timeout: ack_clear_ms)
+      |
+      v
+[READY AGAIN]
+  App set READY=1 -> chu kỳ mới
+```
+
 ---
 
-## 3️⃣ Rung 3 – Chờ Done để bật ACK
-App khi hoàn thành xử lý → bật `DONE = 1`.  
-PLC sau đó bật `ACK = 1` để báo “đã nhận kết quả”.
-- |----[ DONE ]-------------------------------------------( M100 )----|
-|                                           |
-Y1 = DONE                               M100 = ACK
+## 3) Trình tự handshake chuẩn (đề xuất ladder)
+
+1. PLC bật trigger theo mode đang chạy.
+2. App nhận trigger và bật `BUSY=1`.
+3. App xử lý xong, ghi output, bật `DONE=1` (và `ERROR=1` nếu cycle fail).
+4. PLC đọc output xong thì bật `ACK=1`.
+5. App vào `finalize_cycle()`:
+   - clear `DONE`
+   - clear `BUSY`
+   - clear `ERROR` (nếu có)
+6. PLC thấy `BUSY=0` và `DONE=0` thì hạ `ACK=0`.
+7. App chờ ACK OFF xong sẽ set `READY=1`.
 
 ---
 
-## 4️⃣ Rung 4 – Reset Trigger sau khi ACK
-PLC chỉ tắt `TRIG` khi đã `ACK` để chuẩn bị chu kỳ kế tiếp.
-- |----[ M100 ]-------------------------------------------[RST TRIG]---|
+## 4) Timeout behavior (quan trọng khi debug)
+
+- **Chờ ACK ON timeout (`cycle_ms`)**:
+  - App ghi warning log, không treo vô hạn.
+  - Vẫn tiếp tục clear cờ và đi tiếp finalize.
+
+- **Chờ ACK OFF timeout (`ack_clear_ms`)**:
+  - App ghi warning log.
+  - Vẫn set `READY=1` để hệ thống quay lại trạng thái sẵn sàng.
+
+- **Polling trigger/model/mode lỗi truyền thông**:
+  - Worker sleep `poll_error_backoff_ms` rồi retry.
+
+### 4.1 Gợi ý tuning nhanh để giảm timeout
+- Nếu thường xuyên thấy `Timeout waiting for PLC response...`:
+  1. Tăng `timeouts.response_ms` lên 1500 trước.
+  2. Đặt `poll_error_backoff_ms` 500 để retry ổn định hơn.
+  3. Tăng `trigger_poll_interval_ms` lên 20 ms nếu PLC còn quá tải.
+- Nếu timeout ở pha ACK:
+  - tăng `timeouts.cycle_ms` (ví dụ 7000),
+  - tăng `timeouts.ack_clear_ms` (ví dụ 3000).
+- Chỉ tối ưu lại xuống thấp hơn sau khi đã chạy ổn định nhiều chu kỳ liên tiếp.
+
 ---
 
-## 5️⃣ Rung 5 – Chờ App reset Busy/Done/Error
-App gọi `finalize_cycle()` và reset:
-- BUSY = 0
-- DONE = 0
-- ERROR = 0
+## 5) Checklist nhanh cho PLC team
 
-Khi App đã reset xong (tức là `Y0 = BUSY OFF` & `Y1 = DONE OFF`),  
-PLC sẽ tự reset `ACK`.
-- |----[ /BUSY ]---[ /DONE ]-----------------------------[RST M100]----|
-**/BUSY = BUSY OFF**  
-**/DONE = DONE OFF**  
-→ Nếu cả hai bit đều OFF, PLC reset ACK → kết thúc cycle.
-## 6️⃣ Rung 6 – Xử lý kết quả OK/NG → Output kết quả OK NG cho PLC
+### A. Mapping & mode
+- [ ] `trigger`, `sample_trigger`, `ack`, `busy`, `done`, `error`, `ready` map đúng địa chỉ.
+- [ ] Mode code thống nhất: `1=RUN`, `2=SAMPLE`, `3=MIRROR`.
+- [ ] PLC đọc `mode_current_word` để biết mode app đang áp thực tế.
+
+### B. Trigger theo mode
+- [ ] RUN/MIRROR: dùng main trigger.
+- [ ] SAMPLE: dùng sample trigger; không kỳ vọng main trigger chạy.
+- [ ] Trigger ON đủ lâu hơn debounce (`trigger_high_stable_ms`).
+
+### C. ACK handshake
+- [ ] Sau khi thấy `DONE=1`, PLC bật `ACK=1`.
+- [ ] Khi thấy `BUSY=0` và `DONE=0`, PLC hạ `ACK=0`.
+- [ ] Không giữ ACK ON qua nhiều chu kỳ liên tiếp.
+
+### D. Khi có timeout
+- [ ] Kiểm tra PLC có thực sự bật ACK sau DONE chưa.
+- [ ] Kiểm tra ACK có bị kẹt ON không hạ về OFF.
+- [ ] Kiểm tra `timeouts.response_ms`, `cycle_ms`, `ack_clear_ms` phù hợp thực tế mạng.
+- [ ] Kiểm tra log `Timeout waiting for PLC response...` để khoanh vùng lệnh bị treo.
+
+---
+
+
+## 6) Quy tắc ACK khuyến nghị khi lập trình PLC
+
+- ✅ **Khuyến nghị chuẩn:** bật `ACK=1` khi thấy `DONE=1` (sau khi PLC đã đọc xong output).
+- ⚠️ **Không nên** dùng điều kiện `DONE=1 OR ERROR=1` làm trigger ACK chính.
+
+### Vì sao nên bám theo DONE?
+
+1. Ở RUN/SAMPLE, cả thành công và lỗi cycle đều đi qua `DONE=1`:
+   - Thành công: `DONE=True`, `ERROR=False`.
+   - Lỗi: `ERROR=True` rồi cũng `DONE=True`.
+2. Ở MIRROR lỗi, code hiện tại vẫn có thể `DONE=True` nhưng `ERROR=False`.
+   - Nếu PLC ACK dựa vào `ERROR`, có thể bỏ lỡ ACK dù cycle đã hoàn tất.
+3. `finalize_cycle()` của app được thiết kế theo state machine: chờ ACK ON → clear cờ → chờ ACK OFF → set READY lại.
+   - Vì vậy ACK nên bám tín hiệu “chu kỳ hoàn tất” (`DONE`) để đồng bộ chắc chắn.
+
+### Mẫu logic ladder đề xuất
+
+1. Chờ `DONE=1`.
+2. Đọc output cần thiết (result bits / mirror result / error bit để phân loại).
+3. Bật `ACK=1`.
+4. Khi thấy `BUSY=0` và `DONE=0`, hạ `ACK=0`.
+
+---
+
+## 7) Tham chiếu
+- Luồng handshake thực thi: `app/inspection/plc_client.py` (`finalize_cycle`, `wait_for_ack_clear`).
+- Luồng cycle & xử lý lỗi: `app/inspection/workers.py` (`run_cycle`, `run_sample_cycle`).
+- Tài liệu vận hành tổng hợp: `docs/plc_operation_guide.md`.

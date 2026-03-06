@@ -62,11 +62,12 @@ Tài liệu này là bản vận hành chuẩn giữa **PLC ↔ App** để trá
 | Mode hiện tại | Trigger chính (`trigger`) | Trigger SAMPLE (`sample_trigger`) | Hành vi |
 |---|---:|---:|---|
 | RUN | Có hiệu lực | Bỏ qua | Chụp camera + infer model + ghi mảng kết quả |
-| SAMPLE | Có hiệu lực | Có hiệu lực | Load ảnh mẫu `sample_image_root/<ten_recipe>/*.png` + infer + ghi mảng kết quả |
+| SAMPLE | Không poll (main trigger worker dừng) | Có hiệu lực | Load ảnh mẫu `sample_image_root/<ten_recipe>/*.png` + infer + ghi mảng kết quả |
 | MIRROR | Có hiệu lực | Bỏ qua | Chụp camera + đo đường kính + ghi `mirror_result_word` |
 
 ### Lưu ý quan trọng cho SAMPLE
 - `sample_trigger` chỉ được poll khi app đang ở mode `SAMPLE`; mode `RUN/MIRROR` sẽ dừng worker sample trigger để giảm tải PLC.
+- Ở mode `SAMPLE`, main trigger worker cũng dừng nên trigger chính không được xử lý trong mode này.
 - Nếu không tìm thấy ảnh mẫu theo mã hàng: app cảnh báo, không crash.
 - PLC nên giám sát timeout tại tầng ladder để tránh chờ vô hạn.
 - App hiện tại tìm ảnh theo thứ tự:
@@ -154,6 +155,40 @@ Trong đó:
 - [ ] Kiểm tra `BUSY`/`DONE` có về 0 sau mỗi cycle không.
 - [ ] Kiểm tra log timeout `cycle_ms` / `ack_clear_ms`.
 - [ ] Nếu gặp `PLC trigger polling failed: Timeout waiting for PLC response...`, tinh chỉnh `timeouts.response_ms` và/hoặc `poll_error_backoff_ms` để cân bằng tốc độ retry và tải log.
+
+## 6.5 Khuyến nghị tinh chỉnh tránh timeout (ưu tiên cho Keyence KV-8000)
+
+> Mục tiêu: giảm timeout giả trước, sau đó tối ưu tốc độ poll.
+
+### Bước 1 — Ổn định truyền thông
+- Tăng `timeouts.response_ms` lên **1500–2000 ms** (khởi điểm đề xuất: `1500`).
+- Đặt `poll_error_backoff_ms` khoảng **300–500 ms** (khởi điểm: `500`).
+
+### Bước 2 — Giảm tải polling
+- Tăng `trigger_poll_interval_ms` từ 10 ms lên **20–30 ms**.
+- Giữ `sample_trigger_poll_interval_ms` ở **50 ms** (hoặc 80 ms nếu vẫn quá tải).
+
+### Bước 3 — Nới timeout handshake nếu ladder nhiều bước
+- `timeouts.cycle_ms`: **7000–10000 ms**.
+- `timeouts.ack_clear_ms`: **3000–5000 ms**.
+
+### Bộ giá trị khởi điểm tham khảo
+```yaml
+plc:
+  trigger_poll_interval_ms: 20
+  sample_trigger_poll_interval_ms: 50
+  poll_error_backoff_ms: 500
+  timeouts:
+    response_ms: 1500
+    cycle_ms: 7000
+    ack_clear_ms: 3000
+```
+
+### Trình tự tuning khuyến nghị
+1. Bật `log_raw_response: true` để kiểm tra phản hồi thô của PLC.
+2. Chỉnh `response_ms` + `poll_error_backoff_ms` trước.
+3. Nếu vẫn timeout, mới tăng `trigger_poll_interval_ms`.
+4. Cuối cùng mới nới `cycle_ms` / `ack_clear_ms` theo thực tế ladder.
 
 ---
 

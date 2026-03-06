@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from typing import List, Optional
 from pathlib import Path
 
@@ -56,7 +57,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self._requested_mode = OperatingMode.RUN
         self._last_status_message_ts: dict[str, float] = {}
         self._display_image: Optional[QtGui.QImage] = None
-        self.setWindowTitle("Bearing Inspection")
+        configured_title = (getattr(self.config, "app_title", None) or "").strip()
+        self.setWindowTitle(configured_title or "Bearing Inspection")
         self._apply_window_geometry()
 
         self._init_ui()
@@ -71,6 +73,31 @@ class MainWindow(QtWidgets.QMainWindow):
             self.resize(1400, 900)
         if window_cfg and window_cfg.x is not None and window_cfg.y is not None:
             self.move(window_cfg.x, window_cfg.y)
+
+    def _format_addr_label(self, name: str, address: Optional[str]) -> str:
+        return f"{name} ({address})" if address else f"{name} (N/A)"
+
+    def _result_index_with_address(self, index_1_based: int) -> str:
+        start_word = (self.config.plc.addr.result_bits_start_word or "").strip()
+        match = re.match(r"^([A-Za-z]+)(\d+)$", start_word)
+        if not match:
+            return str(index_1_based)
+        prefix, base_text = match.groups()
+        base = int(base_text)
+        offset = max(0, index_1_based - 1)
+        word = base + (offset // 16)
+        bit = offset % 16
+        return f"{index_1_based} ({prefix}{word}.{bit:02d})"
+
+    @staticmethod
+    def _is_plc_timeout_message(message: str) -> bool:
+        text = (message or "").lower()
+        return (
+            "timeout waiting for plc response" in text
+            or "timeout waiting for plc ack" in text
+            or "plc ack wait failed" in text
+            or "plc ack clear wait failed" in text
+        )
 
     def _init_ui(self) -> None:
         window_cfg = getattr(self.config, "window", None)
@@ -88,6 +115,9 @@ class MainWindow(QtWidgets.QMainWindow):
         inspection_tab = QtWidgets.QWidget()
         right_tabs.addTab(inspection_tab, "Inspection")
         inspection_layout = QtWidgets.QVBoxLayout(inspection_tab)
+
+        inspection_content = QtWidgets.QWidget()
+        inspection_content_layout = QtWidgets.QVBoxLayout(inspection_content)
 
         summary_bar = QtWidgets.QHBoxLayout()
 
@@ -139,7 +169,7 @@ class MainWindow(QtWidgets.QMainWindow):
         model_layout.addWidget(actions_group)
 
         summary_bar.addWidget(model_widget, stretch=2)
-        inspection_layout.addLayout(summary_bar)
+        inspection_content_layout.addLayout(summary_bar)
 
         self.image_label = QtWidgets.QLabel()
         min_image_width = 960
@@ -152,7 +182,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.image_label.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
         self.image_label.setAlignment(QtCore.Qt.AlignCenter)
         self.image_label.setStyleSheet("background-color: #1e1e1e; border: 1px solid #555;")
-        inspection_layout.addWidget(self.image_label, stretch=7)
+        inspection_content_layout.addWidget(self.image_label, stretch=7)
 
         self.result_table = QtWidgets.QTableWidget(0, 3)
         self.result_table.setHorizontalHeaderLabels(["Index", "Score", "Status"])
@@ -171,17 +201,30 @@ class MainWindow(QtWidgets.QMainWindow):
         table_scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
         table_scroll.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
         table_scroll.setFixedHeight(table_height + 2)
+        table_scroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+        table_scroll.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAsNeeded)
         table_scroll.setWidget(self.result_table)
-        inspection_layout.addWidget(table_scroll, stretch=0)
+        inspection_content_layout.addWidget(table_scroll, stretch=0)
+
+        inspection_scroll = QtWidgets.QScrollArea()
+        inspection_scroll.setWidgetResizable(True)
+        inspection_scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
+        inspection_scroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+        inspection_scroll.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
+        inspection_scroll.setWidget(inspection_content)
+        inspection_layout.addWidget(inspection_scroll)
 
         plc_tab = QtWidgets.QWidget()
         right_tabs.addTab(plc_tab, "PLC Monitor")
         plc_layout = QtWidgets.QVBoxLayout(plc_tab)
 
+        plc_content = QtWidgets.QWidget()
+        plc_content_layout = QtWidgets.QVBoxLayout(plc_content)
+
         self.plc_monitor_toggle = QtWidgets.QCheckBox("Enable PLC Monitor")
         self.plc_monitor_status = QtWidgets.QLabel("Monitor: Off")
-        plc_layout.addWidget(self.plc_monitor_toggle)
-        plc_layout.addWidget(self.plc_monitor_status)
+        plc_content_layout.addWidget(self.plc_monitor_toggle)
+        plc_content_layout.addWidget(self.plc_monitor_status)
 
         tx_group = QtWidgets.QGroupBox("TX (App → PLC)")
         tx_form = QtWidgets.QFormLayout(tx_group)
@@ -193,15 +236,16 @@ class MainWindow(QtWidgets.QMainWindow):
         self.tx_mode_current_label = QtWidgets.QLabel("-")
         self.tx_model_current_label = QtWidgets.QLabel("-")
         self.tx_mirror_result_label = QtWidgets.QLabel("-")
-        tx_form.addRow("Busy", self.tx_busy_label)
-        tx_form.addRow("Done", self.tx_done_label)
-        tx_form.addRow("Error", self.tx_error_label)
-        tx_form.addRow("Ready", self.tx_ready_label)
-        tx_form.addRow("Run", self.tx_run_label)
-        tx_form.addRow("Mode current word", self.tx_mode_current_label)
-        tx_form.addRow("Model current word", self.tx_model_current_label)
-        tx_form.addRow("Mirror result word", self.tx_mirror_result_label)
-        plc_layout.addWidget(tx_group)
+        addr = self.config.plc.addr
+        tx_form.addRow(self._format_addr_label("Busy", addr.busy), self.tx_busy_label)
+        tx_form.addRow(self._format_addr_label("Done", addr.done), self.tx_done_label)
+        tx_form.addRow(self._format_addr_label("Error", addr.error), self.tx_error_label)
+        tx_form.addRow(self._format_addr_label("Ready", addr.ready), self.tx_ready_label)
+        tx_form.addRow(self._format_addr_label("Run", addr.run), self.tx_run_label)
+        tx_form.addRow(self._format_addr_label("Mode current word", addr.mode_current_word), self.tx_mode_current_label)
+        tx_form.addRow(self._format_addr_label("Model current word", addr.model_current_word), self.tx_model_current_label)
+        tx_form.addRow(self._format_addr_label("Mirror result word", addr.mirror_result_word), self.tx_mirror_result_label)
+        plc_content_layout.addWidget(tx_group)
 
         rx_group = QtWidgets.QGroupBox("RX (PLC → App)")
         rx_form = QtWidgets.QFormLayout(rx_group)
@@ -210,12 +254,12 @@ class MainWindow(QtWidgets.QMainWindow):
         self.rx_ack_label = QtWidgets.QLabel("-")
         self.rx_mode_request_label = QtWidgets.QLabel("-")
         self.rx_model_select_label = QtWidgets.QLabel("-")
-        rx_form.addRow("Trigger", self.rx_trigger_label)
-        rx_form.addRow("Sample trigger", self.rx_sample_trigger_label)
-        rx_form.addRow("ACK", self.rx_ack_label)
-        rx_form.addRow("Mode request word", self.rx_mode_request_label)
-        rx_form.addRow("Model select word", self.rx_model_select_label)
-        plc_layout.addWidget(rx_group)
+        rx_form.addRow(self._format_addr_label("Trigger", addr.trigger), self.rx_trigger_label)
+        rx_form.addRow(self._format_addr_label("Sample trigger", addr.sample_trigger), self.rx_sample_trigger_label)
+        rx_form.addRow(self._format_addr_label("ACK", addr.ack), self.rx_ack_label)
+        rx_form.addRow(self._format_addr_label("Mode request word", addr.mode_request_word), self.rx_mode_request_label)
+        rx_form.addRow(self._format_addr_label("Model select word", addr.model_select_word), self.rx_model_select_label)
+        plc_content_layout.addWidget(rx_group)
 
         self.plc_results_table = QtWidgets.QTableWidget(self.config.layout.count, 2)
         self.plc_results_table.setHorizontalHeaderLabels(["Index", "Result"])
@@ -224,15 +268,25 @@ class MainWindow(QtWidgets.QMainWindow):
         self.plc_results_table.verticalHeader().setSectionResizeMode(QtWidgets.QHeaderView.Fixed)
         self.plc_results_table.setSizeAdjustPolicy(QtWidgets.QAbstractScrollArea.AdjustIgnored)
         self.plc_results_table.setWordWrap(False)
+        self.plc_results_table.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAsNeeded)
         for row in range(self.config.layout.count):
-            self.plc_results_table.setItem(row, 0, QtWidgets.QTableWidgetItem(str(row + 1)))
+            self.plc_results_table.setItem(row, 0, QtWidgets.QTableWidgetItem(self._result_index_with_address(row + 1)))
             self.plc_results_table.setItem(row, 1, QtWidgets.QTableWidgetItem("-"))
         self._set_table_row_heights(self.plc_results_table)
-        plc_layout.addWidget(self.plc_results_table)
+        plc_content_layout.addWidget(self.plc_results_table)
 
         self.plc_monitor_error = QtWidgets.QLabel("")
         self.plc_monitor_error.setStyleSheet("color: red;")
-        plc_layout.addWidget(self.plc_monitor_error)
+        plc_content_layout.addWidget(self.plc_monitor_error)
+        plc_content_layout.addStretch(1)
+
+        plc_scroll = QtWidgets.QScrollArea()
+        plc_scroll.setWidgetResizable(True)
+        plc_scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
+        plc_scroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+        plc_scroll.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
+        plc_scroll.setWidget(plc_content)
+        plc_layout.addWidget(plc_scroll)
 
         options_menu = self.menuBar().addMenu("File")
         self.save_images_action = QtWidgets.QAction("Save processed images", self)
@@ -333,19 +387,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.save_thread.start()
 
         self.trigger_worker = None
-        if self.config.plc.enable_plc_trigger:
-            poll_interval = max(self.config.plc.trigger_poll_interval_ms, 1) / 1000.0
-            self.trigger_worker = PlcTriggerWorker(
-                self.plc,
-                poll_interval=poll_interval,
-                min_interval_ms=self.config.plc.trigger_min_interval_ms,
-                high_stable_ms=self.config.plc.trigger_high_stable_ms,
-                low_stable_ms=self.config.plc.trigger_low_stable_ms,
-                cooldown_ms=self.config.plc.trigger_cooldown_ms,
-                error_backoff_ms=self.config.plc.poll_error_backoff_ms,
-            )
-            self.trigger_worker.triggered.connect(self._handle_plc_trigger)
-            self.trigger_worker.start()
+        self._refresh_main_trigger_worker()
 
         self.mode_select_worker = None
         mode_addr = getattr(self.config.plc.addr, "mode_request_word", None)
@@ -441,8 +483,18 @@ class MainWindow(QtWidgets.QMainWindow):
         self._write_mode_current()
 
         if messages:
-            QtWidgets.QMessageBox.warning(self, "Startup issues", "\n".join(messages))
-            self.statusBar().showMessage("; ".join(messages), 5000)
+            non_timeout_messages = [m for m in messages if not self._is_plc_timeout_message(m)]
+            timeout_messages = [m for m in messages if self._is_plc_timeout_message(m)]
+            if non_timeout_messages:
+                QtWidgets.QMessageBox.warning(self, "Startup issues", "\n".join(non_timeout_messages))
+            if timeout_messages:
+                self._show_rate_limited_status(
+                    "startup_plc_timeout",
+                    "; ".join(timeout_messages),
+                    1000,
+                )
+            else:
+                self.statusBar().showMessage("; ".join(non_timeout_messages), 5000)
 
     @QtCore.pyqtSlot()
     def _on_camera_ready(self) -> None:
@@ -579,7 +631,14 @@ class MainWindow(QtWidgets.QMainWindow):
     @QtCore.pyqtSlot(str)
     def _handle_failure(self, message: str) -> None:
         self._cycle_request_inflight = False
-        QtWidgets.QMessageBox.critical(self, "Inspection failed", message)
+        if self._is_plc_timeout_message(message):
+            self._show_rate_limited_status(
+                "inspection_plc_timeout",
+                f"Inspection failed (PLC timeout): {message}",
+                1000,
+            )
+        else:
+            QtWidgets.QMessageBox.critical(self, "Inspection failed", message)
         self.status_camera.setText("Camera: Error")
         self._apply_requested_mode_if_idle()
 
@@ -637,6 +696,35 @@ class MainWindow(QtWidgets.QMainWindow):
         worker.start()
         self.sample_trigger_worker = worker
 
+    def _start_main_trigger_worker(self) -> None:
+        if not self.config.plc.enable_plc_trigger or self.trigger_worker is not None:
+            return
+        poll_interval = max(self.config.plc.trigger_poll_interval_ms, 1) / 1000.0
+        worker = PlcTriggerWorker(
+            self.plc,
+            poll_interval=poll_interval,
+            min_interval_ms=self.config.plc.trigger_min_interval_ms,
+            high_stable_ms=self.config.plc.trigger_high_stable_ms,
+            low_stable_ms=self.config.plc.trigger_low_stable_ms,
+            cooldown_ms=self.config.plc.trigger_cooldown_ms,
+            error_backoff_ms=self.config.plc.poll_error_backoff_ms,
+        )
+        worker.triggered.connect(self._handle_plc_trigger)
+        worker.start()
+        self.trigger_worker = worker
+
+    def _stop_main_trigger_worker(self) -> None:
+        if self.trigger_worker is None:
+            return
+        self.trigger_worker.stop()
+        self.trigger_worker = None
+
+    def _refresh_main_trigger_worker(self) -> None:
+        if self._current_mode == OperatingMode.SAMPLE:
+            self._stop_main_trigger_worker()
+        else:
+            self._start_main_trigger_worker()
+
     def _stop_sample_trigger_worker(self) -> None:
         if self.sample_trigger_worker is None:
             return
@@ -679,6 +767,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.status_mode.setText(f"Mode: {mode.name}")
         self.runtime_mode_label.setText(mode.name)
         self._sync_mode_actions()
+        self._refresh_main_trigger_worker()
         self._refresh_sample_trigger_worker()
         self._write_mode_current()
 
