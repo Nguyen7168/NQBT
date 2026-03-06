@@ -14,7 +14,7 @@ window:
 
 plc:
   protocol: "ASCII_TCP"
-  ip: "192.168.0.100"
+  ip: "192.168.1.1"
   port: 8501
   addr:
     busy: "DM1522"
@@ -77,7 +77,7 @@ models:
   active_recipe_code: 1
   glass_recipes:
     - code: 1
-      path: "app/models/gls_epoch_124_loss_0_1330_271img.pth"
+      path: "app/models/23-233HA-E.pth"
       name: "23-233HA-E"
       glass_threshold: 0.98
     - code: 2
