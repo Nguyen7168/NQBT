@@ -81,6 +81,16 @@
 - **Polling trigger/model/mode lỗi truyền thông**:
   - Worker sleep `poll_error_backoff_ms` rồi retry.
 
+### 4.1 Gợi ý tuning nhanh để giảm timeout
+- Nếu thường xuyên thấy `Timeout waiting for PLC response...`:
+  1. Tăng `timeouts.response_ms` lên 1500 trước.
+  2. Đặt `poll_error_backoff_ms` 500 để retry ổn định hơn.
+  3. Tăng `trigger_poll_interval_ms` lên 20 ms nếu PLC còn quá tải.
+- Nếu timeout ở pha ACK:
+  - tăng `timeouts.cycle_ms` (ví dụ 7000),
+  - tăng `timeouts.ack_clear_ms` (ví dụ 3000).
+- Chỉ tối ưu lại xuống thấp hơn sau khi đã chạy ổn định nhiều chu kỳ liên tiếp.
+
 ---
 
 ## 5) Checklist nhanh cho PLC team

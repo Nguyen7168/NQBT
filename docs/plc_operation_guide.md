@@ -156,6 +156,40 @@ Trong đó:
 - [ ] Kiểm tra log timeout `cycle_ms` / `ack_clear_ms`.
 - [ ] Nếu gặp `PLC trigger polling failed: Timeout waiting for PLC response...`, tinh chỉnh `timeouts.response_ms` và/hoặc `poll_error_backoff_ms` để cân bằng tốc độ retry và tải log.
 
+## 6.5 Khuyến nghị tinh chỉnh tránh timeout (ưu tiên cho Keyence KV-8000)
+
+> Mục tiêu: giảm timeout giả trước, sau đó tối ưu tốc độ poll.
+
+### Bước 1 — Ổn định truyền thông
+- Tăng `timeouts.response_ms` lên **1500–2000 ms** (khởi điểm đề xuất: `1500`).
+- Đặt `poll_error_backoff_ms` khoảng **300–500 ms** (khởi điểm: `500`).
+
+### Bước 2 — Giảm tải polling
+- Tăng `trigger_poll_interval_ms` từ 10 ms lên **20–30 ms**.
+- Giữ `sample_trigger_poll_interval_ms` ở **50 ms** (hoặc 80 ms nếu vẫn quá tải).
+
+### Bước 3 — Nới timeout handshake nếu ladder nhiều bước
+- `timeouts.cycle_ms`: **7000–10000 ms**.
+- `timeouts.ack_clear_ms`: **3000–5000 ms**.
+
+### Bộ giá trị khởi điểm tham khảo
+```yaml
+plc:
+  trigger_poll_interval_ms: 20
+  sample_trigger_poll_interval_ms: 50
+  poll_error_backoff_ms: 500
+  timeouts:
+    response_ms: 1500
+    cycle_ms: 7000
+    ack_clear_ms: 3000
+```
+
+### Trình tự tuning khuyến nghị
+1. Bật `log_raw_response: true` để kiểm tra phản hồi thô của PLC.
+2. Chỉnh `response_ms` + `poll_error_backoff_ms` trước.
+3. Nếu vẫn timeout, mới tăng `trigger_poll_interval_ms`.
+4. Cuối cùng mới nới `cycle_ms` / `ack_clear_ms` theo thực tế ladder.
+
 ---
 
 ## 7) Triển khai 2 app (config.yaml + config1.yaml)
