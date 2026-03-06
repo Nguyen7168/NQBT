@@ -56,7 +56,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self._requested_mode = OperatingMode.RUN
         self._last_status_message_ts: dict[str, float] = {}
         self._display_image: Optional[QtGui.QImage] = None
-        self.setWindowTitle("Bearing Inspection")
+        configured_title = (getattr(self.config, "app_title", None) or "").strip()
+        self.setWindowTitle(configured_title or "Bearing Inspection")
         self._apply_window_geometry()
 
         self._init_ui()

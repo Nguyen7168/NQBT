@@ -1,3 +1,5 @@
+app_title: "Bearing Inspection"
+
 camera:
   serial: ""
   exposure_us: 8000
