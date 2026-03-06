@@ -450,8 +450,17 @@ class InspectionWorker(QtCore.QObject):
             overlay = cv2.rectangle(overlay, (x1, y1), (x2, y2), color, 3)
             label = str(patch.index)
             box_width = max(x2 - x1, 1)
-            font_scale = max(0.5, min(1.2, box_width / 180))
-            thickness = max(1, int(round(font_scale * 2)))
+            text_mode = str(getattr(self.config.layout, "overlay_index_text_mode", "auto") or "auto").strip().lower()
+            if text_mode == "fixed":
+                font_scale = max(0.1, float(getattr(self.config.layout, "overlay_index_font_scale", 1.0)))
+                thickness = max(1, int(getattr(self.config.layout, "overlay_index_thickness", 2)))
+            else:
+                min_scale = max(0.1, float(getattr(self.config.layout, "overlay_index_min_scale", 0.5)))
+                max_scale = max(min_scale, float(getattr(self.config.layout, "overlay_index_max_scale", 1.2)))
+                divisor = max(1.0, float(getattr(self.config.layout, "overlay_index_scale_divisor", 180.0)))
+                font_scale = max(min_scale, min(max_scale, box_width / divisor))
+                thickness = max(1, int(round(font_scale * 2)))
+            outline_extra = max(1, int(getattr(self.config.layout, "overlay_index_outline_extra", 2)))
             text_origin = (x1 + 4, y1 + int(20 * font_scale))
             cv2.putText(
                 overlay,
@@ -460,7 +469,7 @@ class InspectionWorker(QtCore.QObject):
                 cv2.FONT_HERSHEY_SIMPLEX,
                 font_scale,
                 (0, 0, 0),
-                thickness + 2,
+                thickness + outline_extra,
                 cv2.LINE_AA,
             )
             cv2.putText(
