@@ -89,6 +89,16 @@ class MainWindow(QtWidgets.QMainWindow):
         bit = offset % 16
         return f"{index_1_based} ({prefix}{word}.{bit:02d})"
 
+    @staticmethod
+    def _is_plc_timeout_message(message: str) -> bool:
+        text = (message or "").lower()
+        return (
+            "timeout waiting for plc response" in text
+            or "timeout waiting for plc ack" in text
+            or "plc ack wait failed" in text
+            or "plc ack clear wait failed" in text
+        )
+
     def _init_ui(self) -> None:
         window_cfg = getattr(self.config, "window", None)
         configured_width = window_cfg.width if window_cfg and window_cfg.width else None
@@ -473,8 +483,18 @@ class MainWindow(QtWidgets.QMainWindow):
         self._write_mode_current()
 
         if messages:
-            QtWidgets.QMessageBox.warning(self, "Startup issues", "\n".join(messages))
-            self.statusBar().showMessage("; ".join(messages), 5000)
+            non_timeout_messages = [m for m in messages if not self._is_plc_timeout_message(m)]
+            timeout_messages = [m for m in messages if self._is_plc_timeout_message(m)]
+            if non_timeout_messages:
+                QtWidgets.QMessageBox.warning(self, "Startup issues", "\n".join(non_timeout_messages))
+            if timeout_messages:
+                self._show_rate_limited_status(
+                    "startup_plc_timeout",
+                    "; ".join(timeout_messages),
+                    1000,
+                )
+            else:
+                self.statusBar().showMessage("; ".join(non_timeout_messages), 5000)
 
     @QtCore.pyqtSlot()
     def _on_camera_ready(self) -> None:
@@ -611,7 +631,14 @@ class MainWindow(QtWidgets.QMainWindow):
     @QtCore.pyqtSlot(str)
     def _handle_failure(self, message: str) -> None:
         self._cycle_request_inflight = False
-        QtWidgets.QMessageBox.critical(self, "Inspection failed", message)
+        if self._is_plc_timeout_message(message):
+            self._show_rate_limited_status(
+                "inspection_plc_timeout",
+                f"Inspection failed (PLC timeout): {message}",
+                1000,
+            )
+        else:
+            QtWidgets.QMessageBox.critical(self, "Inspection failed", message)
         self.status_camera.setText("Camera: Error")
         self._apply_requested_mode_if_idle()
 
