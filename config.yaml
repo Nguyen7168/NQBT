@@ -14,7 +14,7 @@ window:
 
 plc:
   protocol: "ASCII_TCP"
-  ip: "192.168.0.100"
+  ip: "192.168.1.1"
   port: 8501
   addr:
     busy: "DM1522"
@@ -24,7 +24,7 @@ plc:
     run: "DM1520"
     trigger: "MR62500"
     ack: "DM1544"
-    result_bits_start_word: "EM7901"
+    result_bits_start_word: "DM30"
     model_select_word: "DM1530"
     model_current_word: "DM1524"
     sample_trigger: "MR87900"
@@ -77,7 +77,7 @@ models:
   active_recipe_code: 1
   glass_recipes:
     - code: 1
-      path: "app/models/gls_epoch_124_loss_0_1330_271img.pth"
+      path: "app/models/23-233HA-E.pth"
       name: "23-233HA-E"
       glass_threshold: 0.98
     - code: 2

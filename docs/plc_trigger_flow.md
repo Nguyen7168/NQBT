@@ -108,6 +108,8 @@
 
 ---
 
+- **Polling trigger/model/mode lỗi truyền thông**:
+  - Worker sleep `poll_error_backoff_ms` rồi retry.
 
 ## 6) Quy tắc ACK khuyến nghị khi lập trình PLC
 
