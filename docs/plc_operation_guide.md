@@ -62,11 +62,12 @@ Tài liệu này là bản vận hành chuẩn giữa **PLC ↔ App** để trá
 | Mode hiện tại | Trigger chính (`trigger`) | Trigger SAMPLE (`sample_trigger`) | Hành vi |
 |---|---:|---:|---|
 | RUN | Có hiệu lực | Bỏ qua | Chụp camera + infer model + ghi mảng kết quả |
-| SAMPLE | Có hiệu lực | Có hiệu lực | Load ảnh mẫu `sample_image_root/<ten_recipe>/*.png` + infer + ghi mảng kết quả |
+| SAMPLE | Không poll (main trigger worker dừng) | Có hiệu lực | Load ảnh mẫu `sample_image_root/<ten_recipe>/*.png` + infer + ghi mảng kết quả |
 | MIRROR | Có hiệu lực | Bỏ qua | Chụp camera + đo đường kính + ghi `mirror_result_word` |
 
 ### Lưu ý quan trọng cho SAMPLE
 - `sample_trigger` chỉ được poll khi app đang ở mode `SAMPLE`; mode `RUN/MIRROR` sẽ dừng worker sample trigger để giảm tải PLC.
+- Ở mode `SAMPLE`, main trigger worker cũng dừng nên trigger chính không được xử lý trong mode này.
 - Nếu không tìm thấy ảnh mẫu theo mã hàng: app cảnh báo, không crash.
 - PLC nên giám sát timeout tại tầng ladder để tránh chờ vô hạn.
 - App hiện tại tìm ảnh theo thứ tự:
