@@ -706,7 +706,7 @@ class PlcTriggerWorker(QtCore.QThread):
     def run(self) -> None:  # pragma: no cover - thread logic
         while not self._stopping.is_set():
             try:
-                state = self._plc.client.read_bit(self._trigger_address)
+                state = self._plc.read_bit(self._trigger_address)
                 now = time.time()
 
                 if state:

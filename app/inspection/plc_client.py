@@ -438,19 +438,26 @@ class PlcController:
             self.state.run = value
 
     def write_results(self, results: Sequence[bool]) -> None:
-        self.client.write_result_bits(self.config.addr.result_bits_start_word, results)
-        self.state.last_results = list(results)
+        with self._lock:
+            self.client.write_result_bits(self.config.addr.result_bits_start_word, results)
+            self.state.last_results = list(results)
+
+    def read_bit(self, address: str) -> bool:
+        with self._lock:
+            return self.client.read_bit(address)
 
     def read_word(self, address: str) -> int:
-        return self.client.read_word(address)
+        with self._lock:
+            return self.client.read_word(address)
 
     def write_word(self, address: str, value: int) -> None:
-        self.client.write_word(address, int(value))
+        with self._lock:
+            self.client.write_word(address, int(value))
 
     def wait_for_trigger(self, poll_interval: float = 0.05) -> bool:
         start = time.time()
         while True:
-            if self.client.read_bit(self.config.addr.trigger):
+            if self.read_bit(self.config.addr.trigger):
                 LOGGER.debug("PLC trigger detected")
                 return True
             if self.state.last_cycle_started and (time.time() - self.state.last_cycle_started) * 1000 > self.config.timeouts.cycle_ms:
@@ -461,7 +468,7 @@ class PlcController:
     def wait_for_ack_clear(self, poll_interval: float = 0.05, timeout_ms: Optional[int] = None) -> None:
         start = time.time()
         timeout = self.config.timeouts.ack_clear_ms if timeout_ms is None else int(timeout_ms)
-        while self.client.read_bit(self.config.addr.ack):
+        while self.read_bit(self.config.addr.ack):
             if timeout > 0 and (time.time() - start) * 1000 > timeout:
                 raise PLCError("Timeout waiting for PLC ACK clear")
             time.sleep(poll_interval)
@@ -470,7 +477,7 @@ class PlcController:
         # Wait for PLC acknowledgement before clearing flags
         start = time.time()
         try:
-            while not self.client.read_bit(self.config.addr.ack):
+            while not self.read_bit(self.config.addr.ack):
                 if (time.time() - start) * 1000 > self.config.timeouts.cycle_ms:
                     LOGGER.warning("Timeout waiting for PLC ACK signal")
                     break
