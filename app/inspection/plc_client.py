@@ -603,11 +603,16 @@ class PlcController:
 
     def write_results(self, results: Sequence[bool]) -> None:
         with self._lock:
+<<<<<<< codex/find-automatic-reconnect-feature-cyekq5
             self._run_with_io_recovery(lambda: self.client.write_result_bits(self.config.addr.result_bits_start_word, results))
+=======
+            self.client.write_result_bits(self.config.addr.result_bits_start_word, results)
+>>>>>>> main
             self.state.last_results = list(results)
 
     def read_bit(self, address: str) -> bool:
         with self._lock:
+<<<<<<< codex/find-automatic-reconnect-feature-cyekq5
             return bool(self._run_with_io_recovery(lambda: self.client.read_bit(address)))
 
     def read_word(self, address: str) -> int:
@@ -617,6 +622,17 @@ class PlcController:
     def write_word(self, address: str, value: int) -> None:
         with self._lock:
             self._run_with_io_recovery(lambda: self.client.write_word(address, int(value)))
+=======
+            return self.client.read_bit(address)
+
+    def read_word(self, address: str) -> int:
+        with self._lock:
+            return self.client.read_word(address)
+
+    def write_word(self, address: str, value: int) -> None:
+        with self._lock:
+            self.client.write_word(address, int(value))
+>>>>>>> main
 
     def wait_for_trigger(self, poll_interval: float = 0.05) -> bool:
         start = time.time()
