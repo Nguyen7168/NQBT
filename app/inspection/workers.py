@@ -121,6 +121,8 @@ class InspectionWorker(QtCore.QObject):
                 LOGGER.warning("Failed to initialise YOLO detector: %s", exc)
         self._lock = threading.Lock()
         self._camera_ready = False
+        self._camera_fail_streak = 0
+        self._camera_recover_stable_success = 0
 
     @QtCore.pyqtSlot()
     def connect_camera(self) -> None:
@@ -139,6 +141,34 @@ class InspectionWorker(QtCore.QObject):
         if not self._camera_ready:
             self.camera.connect()
             self._camera_ready = True
+
+    def _capture_with_reconnect(self) -> object:
+        try:
+            self._ensure_camera_ready()
+            capture = self.camera.capture()
+            self._camera_fail_streak = 0
+            self._camera_recover_stable_success += 1
+            return capture
+        except Exception as exc:
+            self._camera_fail_streak += 1
+            self._camera_recover_stable_success = 0
+            threshold = max(1, int(getattr(self.config.camera, "reconnect_fail_streak_threshold", 3)))
+            if not bool(getattr(self.config.camera, "reconnect_enabled", True)) or self._camera_fail_streak < threshold:
+                raise
+            LOGGER.warning("Camera capture failed %d times; trying reconnect", self._camera_fail_streak)
+            try:
+                self.camera.disconnect()
+            except Exception:
+                pass
+            self._camera_ready = False
+            interval_ms = max(0, int(getattr(self.config.camera, "reconnect_interval_ms", 2000)))
+            if interval_ms > 0:
+                time.sleep(interval_ms / 1000.0)
+            self._ensure_camera_ready()
+            capture = self.camera.capture()
+            self._camera_fail_streak = 0
+            self._camera_recover_stable_success = 1
+            return capture
 
     def _build_result_from_image(self, image: np.ndarray) -> InspectionResult:
         patches, detected = self.cropper.crop_with_count(image)
@@ -203,7 +233,7 @@ class InspectionWorker(QtCore.QObject):
                 self.plc.set_busy(True)
                 self._ensure_camera_ready()
                 self.plc.set_run(True)
-                capture = self.camera.capture()
+                capture = self._capture_with_reconnect()
                 LOGGER.debug("Captured image with shape %s", capture.image.shape)
                 result = self._run_standard_cycle(capture.image)
                 self.plc.set_done(True)
@@ -311,7 +341,7 @@ class InspectionWorker(QtCore.QObject):
                 self.cycle_started.emit()
                 self.plc.set_busy(True)
                 self._ensure_camera_ready()
-                capture = self.camera.capture()
+                capture = self._capture_with_reconnect()
                 image = capture.image
                 overlay, diameter, is_ok = self._measure_mirror(image)
                 self._write_mirror_result(is_ok)
@@ -706,7 +736,10 @@ class PlcTriggerWorker(QtCore.QThread):
     def run(self) -> None:  # pragma: no cover - thread logic
         while not self._stopping.is_set():
             try:
-                state = self._plc.client.read_bit(self._trigger_address)
+                if not self._plc.can_process_plc_trigger():
+                    self.msleep(int(self._poll_interval * 1000))
+                    continue
+                state = self._plc.read_bit(self._trigger_address)
                 now = time.time()
 
                 if state:

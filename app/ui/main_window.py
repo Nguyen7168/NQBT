@@ -810,7 +810,7 @@ class MainWindow(QtWidgets.QMainWindow):
         if not address:
             return "N/A"
         try:
-            value = self.plc.client.read_bit(address)
+            value = self.plc.read_bit(address)
             return "ON" if value else "OFF"
         except Exception:
             return "ERR"
@@ -826,8 +826,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _poll_plc_monitor(self) -> None:
         try:
-            trigger = self.plc.client.read_bit(self.plc.config.addr.trigger)
-            ack = self.plc.client.read_bit(self.plc.config.addr.ack)
+            trigger = self.plc.read_bit(self.plc.config.addr.trigger)
+            ack = self.plc.read_bit(self.plc.config.addr.ack)
             sample_trigger_addr = getattr(self.plc.config.addr, "sample_trigger", None)
             mode_request_addr = getattr(self.plc.config.addr, "mode_request_word", None)
             model_select_addr = getattr(self.plc.config.addr, "model_select_word", None)
@@ -849,6 +849,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.tx_mode_current_label.setText(self._read_plc_word_text(mode_current_addr))
             self.tx_model_current_label.setText(self._read_plc_word_text(model_current_addr))
             self.tx_mirror_result_label.setText(self._read_plc_word_text(mirror_result_addr))
+            self.status_plc.setText(f"PLC: {self.plc.connection_state()}")
             results = self.plc.state.last_results
             total = self.config.layout.count
             for row in range(total):

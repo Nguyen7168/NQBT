@@ -14,6 +14,12 @@ class CameraConfig:
     exposure_us: Optional[int] = None
     gain: Optional[float] = None
     pixel_format: Optional[str] = None
+    reconnect_enabled: bool = True
+    reconnect_interval_ms: int = 2000
+    reconnect_backoff_multiplier: float = 1.5
+    reconnect_max_interval_ms: int = 10000
+    reconnect_fail_streak_threshold: int = 3
+    reconnect_recover_stable_success_count: int = 2
 
 
 @dataclass
@@ -60,6 +66,15 @@ class PlcConfig:
     model_stable_ms: int = 200
     sample_trigger_poll_interval_ms: int = 50
     poll_error_backoff_ms: int = 1000
+    reconnect_enabled: bool = True
+    reconnect_interval_ms: int = 3000
+    reconnect_backoff_multiplier: float = 1.5
+    reconnect_max_interval_ms: int = 30000
+    reconnect_consecutive_fail_to_degraded: int = 2
+    reconnect_recover_stable_success_count: int = 2
+    reconnect_switch_to_mock_on_startup_fail: bool = True
+    reconnect_keep_mock_until_real_stable: bool = True
+    reconnect_allow_plc_trigger_in_mock: bool = False
 
 
 @dataclass
@@ -216,7 +231,19 @@ def load_config(path: str | Path) -> AppConfig:
     config_path = Path(path)
     raw = _load_yaml(config_path)
 
-    camera = CameraConfig(**_require(raw, "camera"))
+    camera_raw = _require(raw, "camera")
+    camera = CameraConfig(
+        serial=camera_raw.get("serial"),
+        exposure_us=(int(camera_raw["exposure_us"]) if camera_raw.get("exposure_us") is not None else None),
+        gain=(float(camera_raw["gain"]) if camera_raw.get("gain") is not None else None),
+        pixel_format=camera_raw.get("pixel_format"),
+        reconnect_enabled=bool(camera_raw.get("reconnect_enabled", True)),
+        reconnect_interval_ms=int(camera_raw.get("reconnect_interval_ms", 2000)),
+        reconnect_backoff_multiplier=float(camera_raw.get("reconnect_backoff_multiplier", 1.5)),
+        reconnect_max_interval_ms=int(camera_raw.get("reconnect_max_interval_ms", 10000)),
+        reconnect_fail_streak_threshold=int(camera_raw.get("reconnect_fail_streak_threshold", 3)),
+        reconnect_recover_stable_success_count=int(camera_raw.get("reconnect_recover_stable_success_count", 2)),
+    )
 
     plc_raw = _require(raw, "plc")
     addr = PlcAddressConfig(**_require(plc_raw, "addr"))
@@ -238,6 +265,15 @@ def load_config(path: str | Path) -> AppConfig:
         model_stable_ms=int(plc_raw.get("model_stable_ms", 200)),
         sample_trigger_poll_interval_ms=int(plc_raw.get("sample_trigger_poll_interval_ms", 50)),
         poll_error_backoff_ms=int(plc_raw.get("poll_error_backoff_ms", 1000)),
+        reconnect_enabled=bool(plc_raw.get("reconnect_enabled", True)),
+        reconnect_interval_ms=int(plc_raw.get("reconnect_interval_ms", 3000)),
+        reconnect_backoff_multiplier=float(plc_raw.get("reconnect_backoff_multiplier", 1.5)),
+        reconnect_max_interval_ms=int(plc_raw.get("reconnect_max_interval_ms", 30000)),
+        reconnect_consecutive_fail_to_degraded=int(plc_raw.get("reconnect_consecutive_fail_to_degraded", 2)),
+        reconnect_recover_stable_success_count=int(plc_raw.get("reconnect_recover_stable_success_count", 2)),
+        reconnect_switch_to_mock_on_startup_fail=bool(plc_raw.get("reconnect_switch_to_mock_on_startup_fail", True)),
+        reconnect_keep_mock_until_real_stable=bool(plc_raw.get("reconnect_keep_mock_until_real_stable", True)),
+        reconnect_allow_plc_trigger_in_mock=bool(plc_raw.get("reconnect_allow_plc_trigger_in_mock", False)),
     )
 
     models_raw = _require(raw, "models")

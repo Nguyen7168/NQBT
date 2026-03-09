@@ -5,6 +5,12 @@ camera:
   exposure_us: 8000
   gain: 0
   pixel_format: "Mono8"
+  reconnect_enabled: true
+  reconnect_interval_ms: 2000
+  reconnect_backoff_multiplier: 1.5
+  reconnect_max_interval_ms: 10000
+  reconnect_fail_streak_threshold: 3
+  reconnect_recover_stable_success_count: 2
 
 window:
   x: 0
@@ -42,6 +48,15 @@ plc:
   model_stable_ms: 200
   sample_trigger_poll_interval_ms: 50
   poll_error_backoff_ms: 1000
+  reconnect_enabled: true
+  reconnect_interval_ms: 3000
+  reconnect_backoff_multiplier: 1.5
+  reconnect_max_interval_ms: 30000
+  reconnect_consecutive_fail_to_degraded: 2
+  reconnect_recover_stable_success_count: 2
+  reconnect_switch_to_mock_on_startup_fail: true
+  reconnect_keep_mock_until_real_stable: true
+  reconnect_allow_plc_trigger_in_mock: false
   timeouts:
     connect_ms: 3000
     response_ms: 1000
