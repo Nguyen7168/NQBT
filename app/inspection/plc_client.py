@@ -6,6 +6,7 @@ import socket
 import struct
 import threading
 import time
+from enum import Enum
 from dataclasses import dataclass
 from typing import Iterable, List, Optional, Sequence
 import re
@@ -28,6 +29,12 @@ class PlcHandshakeState:
     run: bool = False
     last_cycle_started: Optional[float] = None
     last_results: Optional[List[bool]] = None
+
+
+class PlcConnectionState(str, Enum):
+    REAL_CONNECTED = "REAL_CONNECTED"
+    DEGRADED_MOCK = "DEGRADED_MOCK"
+    RECONNECTING_REAL = "RECONNECTING_REAL"
 
 
 class BasePLCClient:
@@ -395,17 +402,174 @@ class PlcController:
                 LOGGER.warning("Unknown PLC protocol %s; using mock", config.protocol)
                 self.client = MockPLCClient()
         self.state = PlcHandshakeState()
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
+        self._io_failures = 0
+        self._stable_recover_success = 0
+        self._connection_state = PlcConnectionState.DEGRADED_MOCK if isinstance(self.client, MockPLCClient) else PlcConnectionState.REAL_CONNECTED
+        self._reconnect_stop = threading.Event()
+        self._reconnect_thread: Optional[threading.Thread] = None
 
     def connect(self) -> None:
-        self.client.connect()
+        with self._lock:
+            self.client.connect()
+            self._io_failures = 0
+            self._stable_recover_success = 0
+            self._connection_state = PlcConnectionState.DEGRADED_MOCK if isinstance(self.client, MockPLCClient) else PlcConnectionState.REAL_CONNECTED
 
     def close(self) -> None:
-        self.client.close()
+        self.stop_auto_reconnect()
+        with self._lock:
+            self.client.close()
+
+    def connection_state(self) -> str:
+        with self._lock:
+            return self._connection_state.value
+
+    def is_mock_mode(self) -> bool:
+        with self._lock:
+            return isinstance(self.client, MockPLCClient)
+
+    def can_process_plc_trigger(self) -> bool:
+        with self._lock:
+            if not isinstance(self.client, MockPLCClient):
+                return True
+            return bool(self.config.reconnect_allow_plc_trigger_in_mock)
+
+    def _build_real_client_no_lock(self) -> BasePLCClient:
+        if self.config.protocol == "FINS_TCP":
+            return OmronFinsTcpClient(self.config)
+        if self.config.protocol == "ASCII_TCP":
+            return AsciiTcpClient(self.config)
+        raise PLCError(f"Unsupported protocol for reconnect: {self.config.protocol}")
+
+    def _switch_to_mock_no_lock(self, reason: str) -> None:
+        if isinstance(self.client, MockPLCClient):
+            self._connection_state = PlcConnectionState.DEGRADED_MOCK
+            return
+        old = self.client
+        self.client = MockPLCClient()
+        try:
+            old.close()
+        except Exception:
+            pass
+        try:
+            self.client.connect()
+        except Exception:
+            pass
+        self._connection_state = PlcConnectionState.DEGRADED_MOCK
+        LOGGER.warning("PLC switched to mock mode: %s", reason)
+
+    def swap_client(self, new_client: BasePLCClient, mark_state: PlcConnectionState = PlcConnectionState.REAL_CONNECTED) -> None:
+        with self._lock:
+            old = self.client
+            self.client = new_client
+            try:
+                old.close()
+            except Exception:
+                pass
+            self._connection_state = mark_state
+            self._io_failures = 0
+
+    def _handle_io_failure_no_lock(self, exc: Exception) -> None:
+        self._io_failures += 1
+        threshold = max(1, int(self.config.reconnect_consecutive_fail_to_degraded))
+        if not isinstance(self.client, MockPLCClient) and self.config.reconnect_enabled and self._io_failures >= threshold:
+            self._switch_to_mock_no_lock(str(exc))
+            self._ensure_reconnect_thread_no_lock()
+
+    def _run_with_io_recovery(self, action):
+        with self._lock:
+            try:
+                result = action()
+                self._io_failures = 0
+                return result
+            except Exception as exc:
+                self._handle_io_failure_no_lock(exc)
+                raise
+
+    def _initialize_outputs_after_recover(self) -> None:
+        self.set_busy(False)
+        self.set_done(False)
+        self.set_error(False)
+        self.set_ready(True)
+        self.set_run(False)
+
+    def _ensure_reconnect_thread_no_lock(self) -> None:
+        if not self.config.reconnect_enabled:
+            return
+        if self._reconnect_thread is not None and self._reconnect_thread.is_alive():
+            return
+        self._reconnect_stop.clear()
+        self._connection_state = PlcConnectionState.RECONNECTING_REAL
+        self._reconnect_thread = threading.Thread(target=self._reconnect_loop, daemon=True, name="plc-reconnect")
+        self._reconnect_thread.start()
+
+    def start_auto_reconnect(self) -> None:
+        with self._lock:
+            if isinstance(self.client, MockPLCClient):
+                self._ensure_reconnect_thread_no_lock()
+
+    def stop_auto_reconnect(self) -> None:
+        self._reconnect_stop.set()
+        thread = self._reconnect_thread
+        if thread is not None and thread.is_alive():
+            thread.join(timeout=1.0)
+
+    def _reconnect_loop(self) -> None:
+        interval_ms = max(200, int(self.config.reconnect_interval_ms))
+        max_ms = max(interval_ms, int(self.config.reconnect_max_interval_ms))
+        factor = max(1.0, float(self.config.reconnect_backoff_multiplier))
+        stable_required = max(1, int(self.config.reconnect_recover_stable_success_count))
+        keep_mock_until_stable = bool(self.config.reconnect_keep_mock_until_real_stable)
+        while not self._reconnect_stop.wait(interval_ms / 1000.0):
+            try:
+                candidate = self._build_real_client_no_lock()
+                candidate.connect()
+                # Lightweight health check read before swapping in.
+                candidate.read_bit(self.config.addr.trigger)
+            except Exception as exc:
+                LOGGER.warning("PLC reconnect attempt failed: %s", exc)
+                interval_ms = min(max_ms, int(interval_ms * factor))
+                with self._lock:
+                    self._connection_state = PlcConnectionState.RECONNECTING_REAL
+                    self._stable_recover_success = 0
+                continue
+
+            with self._lock:
+                try:
+                    if keep_mock_until_stable and self._stable_recover_success + 1 < stable_required:
+                        self._stable_recover_success += 1
+                        self._connection_state = PlcConnectionState.RECONNECTING_REAL
+                        LOGGER.info(
+                            "PLC reconnect health-check passed (%d/%d)",
+                            self._stable_recover_success,
+                            stable_required,
+                        )
+                        try:
+                            candidate.close()
+                        except Exception:
+                            pass
+                        interval_ms = max(200, int(self.config.reconnect_interval_ms))
+                        continue
+                    self.swap_client(candidate, mark_state=PlcConnectionState.RECONNECTING_REAL)
+                    self._initialize_outputs_after_recover()
+                    self._stable_recover_success += 1
+                    if self._stable_recover_success >= stable_required:
+                        self._connection_state = PlcConnectionState.REAL_CONNECTED
+                        self._stable_recover_success = 0
+                        LOGGER.info("PLC reconnect recovered to real client")
+                        interval_ms = max(200, int(self.config.reconnect_interval_ms))
+                    else:
+                        self._connection_state = PlcConnectionState.RECONNECTING_REAL
+                except Exception as exc:
+                    LOGGER.warning("PLC recover handover failed: %s", exc)
+                    self._switch_to_mock_no_lock(str(exc))
+                    self._connection_state = PlcConnectionState.RECONNECTING_REAL
+                    interval_ms = min(max_ms, int(interval_ms * factor))
 
     def set_busy(self, value: bool) -> None:
         with self._lock:
-            self.client.write_bit(self.config.addr.busy, value)
+            self._run_with_io_recovery(lambda: self.client.write_bit(self.config.addr.busy, value))
             self.state.busy = value
             if value:
                 self.state.last_cycle_started = time.time()
@@ -414,18 +578,18 @@ class PlcController:
 
     def set_done(self, value: bool) -> None:
         with self._lock:
-            self.client.write_bit(self.config.addr.done, value)
+            self._run_with_io_recovery(lambda: self.client.write_bit(self.config.addr.done, value))
             self.state.done = value
 
     def set_error(self, value: bool) -> None:
         with self._lock:
-            self.client.write_bit(self.config.addr.error, value)
+            self._run_with_io_recovery(lambda: self.client.write_bit(self.config.addr.error, value))
             self.state.error = value
             if value and self.state.ready:
                 self._set_ready_no_lock(False)
 
     def _set_ready_no_lock(self, value: bool) -> None:
-        self.client.write_bit(self.config.addr.ready, value)
+        self._run_with_io_recovery(lambda: self.client.write_bit(self.config.addr.ready, value))
         self.state.ready = value
 
     def set_ready(self, value: bool) -> None:
@@ -434,16 +598,31 @@ class PlcController:
 
     def set_run(self, value: bool) -> None:
         with self._lock:
-            self.client.write_bit(self.config.addr.run, value)
+            self._run_with_io_recovery(lambda: self.client.write_bit(self.config.addr.run, value))
             self.state.run = value
 
     def write_results(self, results: Sequence[bool]) -> None:
         with self._lock:
+<<<<<<< codex/find-automatic-reconnect-feature-cyekq5
+            self._run_with_io_recovery(lambda: self.client.write_result_bits(self.config.addr.result_bits_start_word, results))
+=======
             self.client.write_result_bits(self.config.addr.result_bits_start_word, results)
+>>>>>>> main
             self.state.last_results = list(results)
 
     def read_bit(self, address: str) -> bool:
         with self._lock:
+<<<<<<< codex/find-automatic-reconnect-feature-cyekq5
+            return bool(self._run_with_io_recovery(lambda: self.client.read_bit(address)))
+
+    def read_word(self, address: str) -> int:
+        with self._lock:
+            return int(self._run_with_io_recovery(lambda: self.client.read_word(address)))
+
+    def write_word(self, address: str, value: int) -> None:
+        with self._lock:
+            self._run_with_io_recovery(lambda: self.client.write_word(address, int(value)))
+=======
             return self.client.read_bit(address)
 
     def read_word(self, address: str) -> int:
@@ -453,6 +632,7 @@ class PlcController:
     def write_word(self, address: str, value: int) -> None:
         with self._lock:
             self.client.write_word(address, int(value))
+>>>>>>> main
 
     def wait_for_trigger(self, poll_interval: float = 0.05) -> bool:
         start = time.time()

@@ -39,10 +39,13 @@ def create_plc_controller(config: AppConfig, allow_mock: bool) -> tuple[PlcContr
     except Exception as exc:
         # Do not abort startup; fall back to a mock PLC so the app can run.
         reason = str(exc)
+        allow_startup_mock = bool(config.plc.reconnect_switch_to_mock_on_startup_fail)
         if allow_mock:
             logger.warning("Failed to connect to PLC: %s. Using mock client.", reason)
         else:
             logger.error("Failed to connect to PLC: %s. Falling back to mock to allow UI startup.", reason)
+        if not allow_startup_mock and not allow_mock:
+            raise
         controller = PlcController(config.plc, client=MockPLCClient())
         # Connect the mock for consistency/logging
         try:
@@ -78,6 +81,7 @@ def main(argv: list[str]) -> int:
 
     try:
         plc, plc_status = create_plc_controller(config, allow_mock=args.allow_mock_plc)
+        plc.start_auto_reconnect()
     except Exception as exc:
         logging.getLogger(__name__).error("Failed to create PLC controller: %s", exc)
         return 1
