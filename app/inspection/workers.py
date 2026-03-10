@@ -32,9 +32,9 @@ LOGGER = logging.getLogger(__name__)
 
 
 class OperatingMode(IntEnum):
-    RUN = 1
+    RUN = 3
     SAMPLE = 2
-    MIRROR = 3
+    MIRROR = 1
 
 
 @dataclass
