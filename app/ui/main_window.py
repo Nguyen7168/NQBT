@@ -779,7 +779,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     @QtCore.pyqtSlot(int)
     def _on_plc_mode_changed(self, mode_value: int) -> None:
-        mode_map = {1: OperatingMode.RUN, 2: OperatingMode.SAMPLE, 3: OperatingMode.MIRROR}
+        mode_map = {3: OperatingMode.RUN, 2: OperatingMode.SAMPLE, 1: OperatingMode.MIRROR}
         target = mode_map.get(int(mode_value))
         if target is None:
             self._show_rate_limited_status(
