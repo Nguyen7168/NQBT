@@ -488,10 +488,10 @@ class PlcController:
                 raise
 
     def _initialize_outputs_after_recover(self) -> None:
-        self.set_busy(False)
+        self.set_busy(False, reason="recover_init")
         self.set_done(False)
         self.set_error(False)
-        self.set_ready(True)
+        self.set_ready(True, reason="recover_init")
         self.set_run(False)
 
     def _ensure_reconnect_thread_no_lock(self) -> None:
@@ -567,14 +567,17 @@ class PlcController:
                     self._connection_state = PlcConnectionState.RECONNECTING_REAL
                     interval_ms = min(max_ms, int(interval_ms * factor))
 
-    def set_busy(self, value: bool) -> None:
+    def set_busy(self, value: bool, reason: str = "") -> None:
         with self._lock:
             self._run_with_io_recovery(lambda: self.client.write_bit(self.config.addr.busy, value))
             self.state.busy = value
             if value:
                 self.state.last_cycle_started = time.time()
+                LOGGER.info("READY OFF context: BUSY=1%s", f" | {reason}" if reason else "")
                 if self.state.ready:
-                    self._set_ready_no_lock(False)
+                    self._set_ready_no_lock(False, reason=f"busy_on:{reason or 'cycle'}")
+            elif not self.state.ready:
+                LOGGER.info("App still not READY after BUSY=0%s", f" | {reason}" if reason else "")
 
     def set_done(self, value: bool) -> None:
         with self._lock:
@@ -586,15 +589,19 @@ class PlcController:
             self._run_with_io_recovery(lambda: self.client.write_bit(self.config.addr.error, value))
             self.state.error = value
             if value and self.state.ready:
-                self._set_ready_no_lock(False)
+                self._set_ready_no_lock(False, reason="error_on")
 
-    def _set_ready_no_lock(self, value: bool) -> None:
+    def _set_ready_no_lock(self, value: bool, reason: str = "") -> None:
         self._run_with_io_recovery(lambda: self.client.write_bit(self.config.addr.ready, value))
         self.state.ready = value
+        if value:
+            LOGGER.info("READY ON%s", f" | {reason}" if reason else "")
+        else:
+            LOGGER.info("READY OFF%s", f" | {reason}" if reason else "")
 
-    def set_ready(self, value: bool) -> None:
+    def set_ready(self, value: bool, reason: str = "") -> None:
         with self._lock:
-            self._set_ready_no_lock(value)
+            self._set_ready_no_lock(value, reason=reason)
 
     def set_run(self, value: bool) -> None:
         with self._lock:
@@ -603,16 +610,13 @@ class PlcController:
 
     def write_results(self, results: Sequence[bool]) -> None:
         with self._lock:
-<<<<<<< codex/find-automatic-reconnect-feature-cyekq5
-            self._run_with_io_recovery(lambda: self.client.write_result_bits(self.config.addr.result_bits_start_word, results))
-=======
-            self.client.write_result_bits(self.config.addr.result_bits_start_word, results)
->>>>>>> main
+            self._run_with_io_recovery(
+                lambda: self.client.write_result_bits(self.config.addr.result_bits_start_word, results)
+            )
             self.state.last_results = list(results)
 
     def read_bit(self, address: str) -> bool:
         with self._lock:
-<<<<<<< codex/find-automatic-reconnect-feature-cyekq5
             return bool(self._run_with_io_recovery(lambda: self.client.read_bit(address)))
 
     def read_word(self, address: str) -> int:
@@ -622,17 +626,6 @@ class PlcController:
     def write_word(self, address: str, value: int) -> None:
         with self._lock:
             self._run_with_io_recovery(lambda: self.client.write_word(address, int(value)))
-=======
-            return self.client.read_bit(address)
-
-    def read_word(self, address: str) -> int:
-        with self._lock:
-            return self.client.read_word(address)
-
-    def write_word(self, address: str, value: int) -> None:
-        with self._lock:
-            self.client.write_word(address, int(value))
->>>>>>> main
 
     def wait_for_trigger(self, poll_interval: float = 0.05) -> bool:
         start = time.time()
@@ -665,11 +658,11 @@ class PlcController:
         except PLCError as exc:
             LOGGER.warning("PLC ACK wait failed: %s", exc)
         self.set_done(False)
-        self.set_busy(False)
+        self.set_busy(False, reason="finalize")
         if self.state.error:
             self.set_error(False)
         try:
             self.wait_for_ack_clear()
         except PLCError as exc:
             LOGGER.warning("PLC ACK clear wait failed: %s", exc)
-        self.set_ready(True)
+        self.set_ready(True, reason="finalize_complete")

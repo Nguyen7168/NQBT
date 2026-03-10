@@ -20,8 +20,8 @@ Tài liệu này là bản vận hành chuẩn giữa **PLC ↔ App** để trá
 | Kết quả OK/NG mảng | `plc.addr.result_bits_start_word` | `EM7901` | App → PLC | Mảng kết quả ROI (RUN/SAMPLE) |
 | Model request | `plc.addr.model_select_word` | `DM1530` | PLC → App | Mã model PLC yêu cầu |
 | Model current | `plc.addr.model_current_word` | `DM1524` | App → PLC | Mã model app đang dùng |
-| Mode request | `plc.addr.mode_request_word` | `DM1533` | PLC → App | Mode PLC yêu cầu: 1/2/3 |
-| Mode current | `plc.addr.mode_current_word` | `DM1525` | App → PLC | Mode app đang chạy: 1/2/3 |
+| Mode request | `plc.addr.mode_request_word` | `DM1533` | PLC → App | Mode PLC yêu cầu: RUN=3, SAMPLE=2, MIRROR=1 |
+| Mode current | `plc.addr.mode_current_word` | `DM1525` | App → PLC | Mode app đang chạy: RUN=3, SAMPLE=2, MIRROR=1 |
 | Mirror result | `plc.addr.mirror_result_word` | `EM1332` | App → PLC | Kết quả mirror: OK=1, NG=0 |
 
 ### Mapping mảng kết quả `result_bits_start_word`
@@ -38,9 +38,9 @@ Tài liệu này là bản vận hành chuẩn giữa **PLC ↔ App** để trá
 ## 2) Mode State Machine
 
 ## 2.1 Mode code
-- `1 = RUN`
+- `3 = RUN`
 - `2 = SAMPLE`
-- `3 = MIRROR`
+- `1 = MIRROR`
 
 ## 2.2 Nguồn đổi mode
 - **Manual trên app**: người vận hành chọn từ menu/toolbar `Mode`.
@@ -131,7 +131,7 @@ Trong đó:
 ## 6.1 Kiểm tra cấu hình
 - [ ] IP/port PLC đúng.
 - [ ] Tất cả địa chỉ bit/word map đúng như bảng I/O.
-- [ ] `mode_request_word` / `mode_current_word` map đúng 1/2/3.
+- [ ] `mode_request_word` / `mode_current_word` map đúng RUN=3, SAMPLE=2, MIRROR=1.
 - [ ] `mirror_result_word` map đúng vùng PLC đọc.
 - [ ] `sample_image_root` tồn tại và có thư mục theo mã hàng.
 
@@ -156,7 +156,16 @@ Trong đó:
 - [ ] Kiểm tra log timeout `cycle_ms` / `ack_clear_ms`.
 - [ ] Nếu gặp `PLC trigger polling failed: Timeout waiting for PLC response...`, tinh chỉnh `timeouts.response_ms` và/hoặc `poll_error_backoff_ms` để cân bằng tốc độ retry và tải log.
 
-## 6.5 Khuyến nghị tinh chỉnh tránh timeout (ưu tiên cho Keyence KV-8000)
+## 6.5 Khi app không chuyển mode theo yêu cầu PLC (dù monitor thấy PLC ghi đúng)
+- [ ] Xác nhận PLC ghi đúng mã mode mới: `RUN=3`, `SAMPLE=2`, `MIRROR=1`. Giá trị khác sẽ bị app bỏ qua.
+- [ ] Kiểm tra app có đang bận chu kỳ không (`BUSY=1` hoặc đang inflight). Khi bận, mode sẽ được queue và chỉ áp sau khi cycle kết thúc.
+- [ ] Kiểm tra timeout/handshake ACK: nếu ACK không lên/xuống đúng nhịp, app có thể chờ đến timeout rồi mới clear `BUSY` và áp mode mới.
+- [ ] Kiểm tra polling mode có lỗi truyền thông không (log `PLC mode polling failed`). Khi lỗi, worker sẽ backoff theo `poll_error_backoff_ms` nên nhìn như phản ứng chậm.
+- [ ] Kiểm tra nhiễu mode request: mode mới phải giữ ổn định đủ `model_stable_ms` để worker phát hiện thay đổi.
+- [ ] Với model handshake, app có cảnh báo mismatch `model_select_word != model_current_word` theo status message nếu lệch kéo dài.
+- [ ] App có heartbeat có điều kiện để ghi lại `model_current_word` khi `model_select_word` đã trùng model app nhưng `model_current_word` vẫn lệch.
+
+## 6.6 Khuyến nghị tinh chỉnh tránh timeout (ưu tiên cho Keyence KV-8000)
 
 > Mục tiêu: giảm timeout giả trước, sau đó tối ưu tốc độ poll.
 
