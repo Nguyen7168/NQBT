@@ -488,10 +488,10 @@ class PlcController:
                 raise
 
     def _initialize_outputs_after_recover(self) -> None:
-        self.set_busy(False)
+        self.set_busy(False, reason="recover_init")
         self.set_done(False)
         self.set_error(False)
-        self.set_ready(True)
+        self.set_ready(True, reason="recover_init")
         self.set_run(False)
 
     def _ensure_reconnect_thread_no_lock(self) -> None:
@@ -567,14 +567,17 @@ class PlcController:
                     self._connection_state = PlcConnectionState.RECONNECTING_REAL
                     interval_ms = min(max_ms, int(interval_ms * factor))
 
-    def set_busy(self, value: bool) -> None:
+    def set_busy(self, value: bool, reason: str = "") -> None:
         with self._lock:
             self._run_with_io_recovery(lambda: self.client.write_bit(self.config.addr.busy, value))
             self.state.busy = value
             if value:
                 self.state.last_cycle_started = time.time()
+                LOGGER.info("READY OFF context: BUSY=1%s", f" | {reason}" if reason else "")
                 if self.state.ready:
-                    self._set_ready_no_lock(False)
+                    self._set_ready_no_lock(False, reason=f"busy_on:{reason or 'cycle'}")
+            elif not self.state.ready:
+                LOGGER.info("App still not READY after BUSY=0%s", f" | {reason}" if reason else "")
 
     def set_done(self, value: bool) -> None:
         with self._lock:
@@ -586,15 +589,19 @@ class PlcController:
             self._run_with_io_recovery(lambda: self.client.write_bit(self.config.addr.error, value))
             self.state.error = value
             if value and self.state.ready:
-                self._set_ready_no_lock(False)
+                self._set_ready_no_lock(False, reason="error_on")
 
-    def _set_ready_no_lock(self, value: bool) -> None:
+    def _set_ready_no_lock(self, value: bool, reason: str = "") -> None:
         self._run_with_io_recovery(lambda: self.client.write_bit(self.config.addr.ready, value))
         self.state.ready = value
+        if value:
+            LOGGER.info("READY ON%s", f" | {reason}" if reason else "")
+        else:
+            LOGGER.info("READY OFF%s", f" | {reason}" if reason else "")
 
-    def set_ready(self, value: bool) -> None:
+    def set_ready(self, value: bool, reason: str = "") -> None:
         with self._lock:
-            self._set_ready_no_lock(value)
+            self._set_ready_no_lock(value, reason=reason)
 
     def set_run(self, value: bool) -> None:
         with self._lock:
@@ -651,11 +658,11 @@ class PlcController:
         except PLCError as exc:
             LOGGER.warning("PLC ACK wait failed: %s", exc)
         self.set_done(False)
-        self.set_busy(False)
+        self.set_busy(False, reason="finalize")
         if self.state.error:
             self.set_error(False)
         try:
             self.wait_for_ack_clear()
         except PLCError as exc:
             LOGGER.warning("PLC ACK clear wait failed: %s", exc)
-        self.set_ready(True)
+        self.set_ready(True, reason="finalize_complete")

@@ -641,12 +641,16 @@ class MainWindow(QtWidgets.QMainWindow):
     @QtCore.pyqtSlot(str)
     def _handle_failure(self, message: str) -> None:
         self._cycle_request_inflight = False
+        mirror_related = self._current_mode == OperatingMode.MIRROR or (message or "").startswith("MIRROR:")
         if self._is_plc_timeout_message(message):
             self._show_rate_limited_status(
                 "inspection_plc_timeout",
                 f"Inspection failed (PLC timeout): {message}",
                 1000,
             )
+        elif mirror_related:
+            LOGGER.warning("Mirror warning (non-blocking): %s", message)
+            self._show_rate_limited_status("mirror_warning", f"Mirror warning: {message}", 1000)
         else:
             QtWidgets.QMessageBox.critical(self, "Inspection failed", message)
         self.status_camera.setText("Camera: Error")
@@ -1025,7 +1029,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._pending_recipe_code = int(model_code)
         self._recipe_switch_in_progress = True
         try:
-            self.plc.set_busy(True)
+            self.plc.set_busy(True, reason="model_switch")
         except PLCError as exc:
             self.statusBar().showMessage(f"Failed to set BUSY for model switch: {exc}", 5000)
         QtCore.QMetaObject.invokeMethod(
@@ -1061,7 +1065,7 @@ class MainWindow(QtWidgets.QMainWindow):
             except PLCError as exc:
                 self.statusBar().showMessage(f"Failed to write current model code: {exc}", 5000)
         try:
-            self.plc.set_busy(False)
+            self.plc.set_busy(False, reason="model_switch_done")
         except PLCError as exc:
             self.statusBar().showMessage(f"Failed to clear BUSY after model switch: {exc}", 5000)
         self._pending_recipe_code = None
@@ -1075,7 +1079,7 @@ class MainWindow(QtWidgets.QMainWindow):
         except PLCError:
             pass
         try:
-            self.plc.set_busy(False)
+            self.plc.set_busy(False, reason="model_switch_fail")
         except PLCError:
             pass
 
