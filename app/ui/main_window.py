@@ -1066,8 +1066,9 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.statusBar().showMessage(f"Failed to write current model code: {exc}", 5000)
         try:
             self.plc.set_busy(False, reason="model_switch_done")
+            self.plc.set_ready(True, reason="model_switch_done")
         except PLCError as exc:
-            self.statusBar().showMessage(f"Failed to clear BUSY after model switch: {exc}", 5000)
+            self.statusBar().showMessage(f"Failed to clear BUSY/READY after model switch: {exc}", 5000)
         self._pending_recipe_code = None
 
     @QtCore.pyqtSlot(str)
@@ -1080,6 +1081,7 @@ class MainWindow(QtWidgets.QMainWindow):
             pass
         try:
             self.plc.set_busy(False, reason="model_switch_fail")
+            self.plc.set_ready(True, reason="model_switch_fail")
         except PLCError:
             pass
 
