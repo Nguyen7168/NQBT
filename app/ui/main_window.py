@@ -682,6 +682,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     @QtCore.pyqtSlot(object, float, bool)
     def _on_mirror_test_completed(self, overlay_image: object, diameter: float, is_ok: bool) -> None:
+        self._cycle_request_inflight = False
         if isinstance(overlay_image, np.ndarray):
             self._set_display_image(numpy_to_qimage(overlay_image))
         self.statusBar().showMessage(
