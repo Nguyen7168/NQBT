@@ -6,9 +6,9 @@
 
 | Mode | Main trigger (`plc.addr.trigger`) | Sample trigger (`plc.addr.sample_trigger`) | Hành vi cycle |
 |---|---|---|---|
-| RUN (1) | ✅ Có hiệu lực | ❌ Không chạy worker sample | Chụp camera + infer + ghi mảng OK/NG |
+| RUN (3) | ✅ Có hiệu lực | ❌ Không chạy worker sample | Chụp camera + infer + ghi mảng OK/NG |
 | SAMPLE (2) | ❌ Worker main trigger tạm dừng | ✅ Có hiệu lực | Dùng ảnh mẫu + infer + ghi mảng OK/NG |
-| MIRROR (3) | ✅ Có hiệu lực | ❌ Không chạy worker sample | Chụp camera + đo mirror + ghi `mirror_result_word` |
+| MIRROR (1) | ✅ Có hiệu lực | ❌ Không chạy worker sample | Chụp camera + đo mirror + ghi `mirror_result_word` |
 
 **Điểm quan trọng:**
 - Ở mode `SAMPLE`, app chỉ nhận trigger từ `sample_trigger`.
@@ -97,7 +97,7 @@
 
 ### A. Mapping & mode
 - [ ] `trigger`, `sample_trigger`, `ack`, `busy`, `done`, `error`, `ready` map đúng địa chỉ.
-- [ ] Mode code thống nhất: `1=RUN`, `2=SAMPLE`, `3=MIRROR`.
+- [ ] Mode code thống nhất: `3=RUN`, `2=SAMPLE`, `1=MIRROR`.
 - [ ] PLC đọc `mode_current_word` để biết mode app đang áp thực tế.
 
 ### B. Trigger theo mode
