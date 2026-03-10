@@ -162,6 +162,8 @@ Trong đó:
 - [ ] Kiểm tra timeout/handshake ACK: nếu ACK không lên/xuống đúng nhịp, app có thể chờ đến timeout rồi mới clear `BUSY` và áp mode mới.
 - [ ] Kiểm tra polling mode có lỗi truyền thông không (log `PLC mode polling failed`). Khi lỗi, worker sẽ backoff theo `poll_error_backoff_ms` nên nhìn như phản ứng chậm.
 - [ ] Kiểm tra nhiễu mode request: mode mới phải giữ ổn định đủ `model_stable_ms` để worker phát hiện thay đổi.
+- [ ] Với model handshake, app có cảnh báo mismatch `model_select_word != model_current_word` theo status message nếu lệch kéo dài.
+- [ ] App có heartbeat có điều kiện để ghi lại `model_current_word` khi `model_select_word` đã trùng model app nhưng `model_current_word` vẫn lệch.
 
 ## 6.6 Khuyến nghị tinh chỉnh tránh timeout (ưu tiên cho Keyence KV-8000)
 

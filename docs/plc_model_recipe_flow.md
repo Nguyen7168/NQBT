@@ -28,6 +28,8 @@ Trong `config.yaml`:
    - set `error` bit để PLC xử lý.
 
 ## Lưu ý an toàn
+- App có heartbeat có điều kiện: nếu `model_select_word` đã trùng model app đang dùng nhưng `model_current_word` vẫn lệch, app sẽ ghi lại `model_current_word` theo chu kỳ (có giới hạn tần suất) để tự đồng bộ.
+- App cảnh báo mismatch (`select != current`) theo dạng status message khi lệch kéo dài nhiều nhịp poll.
 - Nếu đang chạy cycle (`busy=1`), app sẽ queue yêu cầu đổi model và áp dụng sau khi cycle kết thúc.
 - PLC nên chỉ phát trigger inspection khi đã thấy `DM1524 == DM1530`.
 
