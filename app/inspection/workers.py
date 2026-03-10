@@ -32,9 +32,9 @@ LOGGER = logging.getLogger(__name__)
 
 
 class OperatingMode(IntEnum):
-    RUN = 1
+    RUN = 3
     SAMPLE = 2
-    MIRROR = 3
+    MIRROR = 1
 
 
 @dataclass
@@ -230,7 +230,7 @@ class InspectionWorker(QtCore.QObject):
         with self._lock:
             try:
                 self.cycle_started.emit()
-                self.plc.set_busy(True)
+                self.plc.set_busy(True, reason="run_cycle")
                 self._ensure_camera_ready()
                 self.plc.set_run(True)
                 capture = self._capture_with_reconnect()
@@ -257,7 +257,7 @@ class InspectionWorker(QtCore.QObject):
         with self._lock:
             try:
                 self.cycle_started.emit()
-                self.plc.set_busy(True)
+                self.plc.set_busy(True, reason="sample_cycle")
                 image = cv2.imread(sample_image_path)
                 if image is None:
                     raise RuntimeError(f"Cannot read sample image: {sample_image_path}")
@@ -332,14 +332,14 @@ class InspectionWorker(QtCore.QObject):
                     self._write_mirror_result(False)
                 except Exception:
                     pass
-                self.cycle_failed.emit(str(exc))
+                self.cycle_failed.emit(f"MIRROR: {exc}")
 
     @QtCore.pyqtSlot()
     def run_mirror_cycle(self) -> None:
         with self._lock:
             try:
                 self.cycle_started.emit()
-                self.plc.set_busy(True)
+                self.plc.set_busy(True, reason="mirror_cycle")
                 self._ensure_camera_ready()
                 capture = self._capture_with_reconnect()
                 image = capture.image

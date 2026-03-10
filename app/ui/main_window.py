@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 from typing import List, Optional
 from pathlib import Path
 
@@ -56,6 +57,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self._current_mode = OperatingMode.RUN
         self._requested_mode = OperatingMode.RUN
         self._last_status_message_ts: dict[str, float] = {}
+        self._model_mismatch_streak = 0
+        self._last_model_sync_write_ts = 0.0
         self._display_image: Optional[QtGui.QImage] = None
         configured_title = (getattr(self.config, "app_title", None) or "").strip()
         self.setWindowTitle(configured_title or "Bearing Inspection")
@@ -375,6 +378,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self.plc_monitor_timer.setInterval(200)
         self.plc_monitor_timer.timeout.connect(self._poll_plc_monitor)
 
+        self.model_sync_timer = QtCore.QTimer(self)
+        self.model_sync_timer.setInterval(500)
+        self.model_sync_timer.timeout.connect(self._model_sync_heartbeat)
+
     def _init_workers(self) -> None:
         self.inspection_thread = QtCore.QThread(self)
         self.worker = InspectionWorker(self.config, self.plc, use_dummy_camera=self._use_dummy_camera)
@@ -421,6 +428,9 @@ class MainWindow(QtWidgets.QMainWindow):
             )
             self.model_select_worker.model_code_changed.connect(self._on_plc_model_code_changed)
             self.model_select_worker.start()
+
+        if getattr(self.config.plc.addr, "model_select_word", None) and getattr(self.config.plc.addr, "model_current_word", None):
+            self.model_sync_timer.start()
 
         self.trigger_manual.connect(self._handle_trigger)
         self.worker.cycle_started.connect(self._on_cycle_started)
@@ -631,12 +641,16 @@ class MainWindow(QtWidgets.QMainWindow):
     @QtCore.pyqtSlot(str)
     def _handle_failure(self, message: str) -> None:
         self._cycle_request_inflight = False
+        mirror_related = self._current_mode == OperatingMode.MIRROR or (message or "").startswith("MIRROR:")
         if self._is_plc_timeout_message(message):
             self._show_rate_limited_status(
                 "inspection_plc_timeout",
                 f"Inspection failed (PLC timeout): {message}",
                 1000,
             )
+        elif mirror_related:
+            LOGGER.warning("Mirror warning (non-blocking): %s", message)
+            self._show_rate_limited_status("mirror_warning", f"Mirror warning: {message}", 1000)
         else:
             QtWidgets.QMessageBox.critical(self, "Inspection failed", message)
         self.status_camera.setText("Camera: Error")
@@ -668,6 +682,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     @QtCore.pyqtSlot(object, float, bool)
     def _on_mirror_test_completed(self, overlay_image: object, diameter: float, is_ok: bool) -> None:
+        self._cycle_request_inflight = False
         if isinstance(overlay_image, np.ndarray):
             self._set_display_image(numpy_to_qimage(overlay_image))
         self.statusBar().showMessage(
@@ -779,7 +794,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     @QtCore.pyqtSlot(int)
     def _on_plc_mode_changed(self, mode_value: int) -> None:
-        mode_map = {1: OperatingMode.RUN, 2: OperatingMode.SAMPLE, 3: OperatingMode.MIRROR}
+        mode_map = {3: OperatingMode.RUN, 2: OperatingMode.SAMPLE, 1: OperatingMode.MIRROR}
         target = mode_map.get(int(mode_value))
         if target is None:
             self._show_rate_limited_status(
@@ -794,6 +809,59 @@ class MainWindow(QtWidgets.QMainWindow):
             return
         self.statusBar().showMessage(f"PLC override mode -> {target.name}", 2500)
         self._set_mode(target)
+
+    def _model_sync_heartbeat(self) -> None:
+        model_select_addr = getattr(self.config.plc.addr, "model_select_word", None)
+        model_current_addr = getattr(self.config.plc.addr, "model_current_word", None)
+        if not model_select_addr or not model_current_addr:
+            return
+        try:
+            select_code = int(self.plc.read_word(model_select_addr))
+            current_code = int(self.plc.read_word(model_current_addr))
+        except PLCError as exc:
+            self._show_rate_limited_status("model_sync_read_fail", f"Model sync monitor read failed: {exc}", 2000)
+            return
+
+        mismatch = select_code != current_code
+        if mismatch:
+            self._model_mismatch_streak += 1
+            if self._model_mismatch_streak >= 3:
+                self._show_rate_limited_status(
+                    "model_sync_mismatch",
+                    f"Model mismatch: select={select_code}, current={current_code}",
+                    1000,
+                )
+        else:
+            self._model_mismatch_streak = 0
+
+        expected_code = self._current_recipe_code
+        if expected_code is None:
+            return
+        expected = int(expected_code)
+
+        # Conditional heartbeat: re-write model_current only when PLC request already matches app model,
+        # but model_current word on PLC is still out-of-sync.
+        if (
+            current_code != expected
+            and select_code == expected
+            and not self._recipe_switch_in_progress
+            and self._pending_recipe_code is None
+            and not self.plc.state.busy
+            and not self._cycle_request_inflight
+        ):
+            now = time.time()
+            if (now - self._last_model_sync_write_ts) * 1000.0 < 1000.0:
+                return
+            try:
+                self.plc.write_word(model_current_addr, expected)
+                self._last_model_sync_write_ts = now
+                self._show_rate_limited_status(
+                    "model_sync_rewrite",
+                    f"Model sync heartbeat rewrote current={expected}",
+                    1000,
+                )
+            except PLCError as exc:
+                self._show_rate_limited_status("model_sync_write_fail", f"Model sync rewrite failed: {exc}", 2000)
 
     def _toggle_plc_monitor(self, enabled: bool) -> None:
         if enabled:
@@ -962,7 +1030,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._pending_recipe_code = int(model_code)
         self._recipe_switch_in_progress = True
         try:
-            self.plc.set_busy(True)
+            self.plc.set_busy(True, reason="model_switch")
         except PLCError as exc:
             self.statusBar().showMessage(f"Failed to set BUSY for model switch: {exc}", 5000)
         QtCore.QMetaObject.invokeMethod(
@@ -998,9 +1066,10 @@ class MainWindow(QtWidgets.QMainWindow):
             except PLCError as exc:
                 self.statusBar().showMessage(f"Failed to write current model code: {exc}", 5000)
         try:
-            self.plc.set_busy(False)
+            self.plc.set_busy(False, reason="model_switch_done")
+            self.plc.set_ready(True, reason="model_switch_done")
         except PLCError as exc:
-            self.statusBar().showMessage(f"Failed to clear BUSY after model switch: {exc}", 5000)
+            self.statusBar().showMessage(f"Failed to clear BUSY/READY after model switch: {exc}", 5000)
         self._pending_recipe_code = None
 
     @QtCore.pyqtSlot(str)
@@ -1012,7 +1081,8 @@ class MainWindow(QtWidgets.QMainWindow):
         except PLCError:
             pass
         try:
-            self.plc.set_busy(False)
+            self.plc.set_busy(False, reason="model_switch_fail")
+            self.plc.set_ready(True, reason="model_switch_fail")
         except PLCError:
             pass
 
@@ -1104,6 +1174,8 @@ class MainWindow(QtWidgets.QMainWindow):
         try:
             if hasattr(self, "plc_monitor_timer"):
                 self.plc_monitor_timer.stop()
+            if hasattr(self, "model_sync_timer"):
+                self.model_sync_timer.stop()
             QtCore.QMetaObject.invokeMethod(self.worker, "shutdown", QtCore.Qt.BlockingQueuedConnection)
             if self.trigger_worker is not None:
                 self.trigger_worker.stop()
