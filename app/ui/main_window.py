@@ -642,18 +642,37 @@ class MainWindow(QtWidgets.QMainWindow):
     def _handle_failure(self, message: str) -> None:
         self._cycle_request_inflight = False
         mirror_related = self._current_mode == OperatingMode.MIRROR or (message or "").startswith("MIRROR:")
+        mirror_camera_error = (message or "").startswith("MIRROR_CAMERA:")
+        mirror_detect_error = (message or "").startswith("MIRROR_DETECT:")
         if self._is_plc_timeout_message(message):
             self._show_rate_limited_status(
                 "inspection_plc_timeout",
                 f"Inspection failed (PLC timeout): {message}",
                 1000,
             )
+        elif mirror_camera_error:
+            clean_message = (message or "").replace("MIRROR_CAMERA:", "", 1).strip()
+            LOGGER.warning("Mirror camera error: %s", clean_message)
+            self._show_rate_limited_status("mirror_camera_error", f"Mirror camera error: {clean_message}", 1000)
+            self.status_camera.setText("Camera: Error")
+        elif mirror_detect_error:
+            clean_message = (message or "").replace("MIRROR_DETECT:", "", 1).strip()
+            LOGGER.warning("Mirror detect error: %s", clean_message)
+            self._show_rate_limited_status("mirror_detect_error", f"Mirror detect error: {clean_message}", 1000)
+            self.status_camera.setText("Mirror: Detect Error")
+            self.ok_label.setText("0")
+            self.ng_label.setText("1")
+            self._set_overall_status("NG")
         elif mirror_related:
             LOGGER.warning("Mirror warning (non-blocking): %s", message)
             self._show_rate_limited_status("mirror_warning", f"Mirror warning: {message}", 1000)
+            self.status_camera.setText("Mirror: Warning")
+            self.ok_label.setText("0")
+            self.ng_label.setText("1")
+            self._set_overall_status("NG")
         else:
             QtWidgets.QMessageBox.critical(self, "Inspection failed", message)
-        self.status_camera.setText("Camera: Error")
+            self.status_camera.setText("Camera: Error")
         self._apply_requested_mode_if_idle()
 
     def _show_rate_limited_status(self, key: str, message: str, min_interval_ms: int = 1000) -> None:
@@ -685,6 +704,15 @@ class MainWindow(QtWidgets.QMainWindow):
         self._cycle_request_inflight = False
         if isinstance(overlay_image, np.ndarray):
             self._set_display_image(numpy_to_qimage(overlay_image))
+        self.result_table.setRowCount(1)
+        self._set_table_row_heights(self.result_table)
+        self.result_table.setItem(0, 0, QtWidgets.QTableWidgetItem("MIRROR"))
+        self.result_table.setItem(0, 1, QtWidgets.QTableWidgetItem(f"{diameter:.3f}"))
+        self.result_table.setItem(0, 2, QtWidgets.QTableWidgetItem("OK" if is_ok else "NG"))
+        self.ok_label.setText("1" if is_ok else "0")
+        self.ng_label.setText("0" if is_ok else "1")
+        self._set_overall_status("OK" if is_ok else "NG")
+        self.status_camera.setText("Camera: Ready")
         self.statusBar().showMessage(
             f"Mirror test {'OK' if is_ok else 'NG'} | diameter={diameter:.2f}px",
             4000,
