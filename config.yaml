@@ -42,7 +42,7 @@ plc:
   model_stable_ms: 200
   sample_trigger_poll_interval_ms: 50
   poll_error_backoff_ms: 1000
-  done_hold_ms: 0
+  done_hold_ms: 50
   timeouts:
     connect_ms: 3000
     response_ms: 1000
@@ -88,9 +88,9 @@ models:
 
 io:
   save_images: true
-  output_dir: "runs/latest"
-  raw_dir: "runs/raw"
-  crops_dir: "runs/crops"
+  output_dir: "runs/cam1/latest"
+  raw_dir: "runs/cam1/raw"
+  crops_dir: "runs/cam1/crops"
   filename_pattern: "{ts}_{model}_{idx:02d}_{cls}.png"
   save_heatmap: false
   save_binary: false
