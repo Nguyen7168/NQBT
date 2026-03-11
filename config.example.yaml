@@ -57,6 +57,7 @@ plc:
   reconnect_switch_to_mock_on_startup_fail: true
   reconnect_keep_mock_until_real_stable: true
   reconnect_allow_plc_trigger_in_mock: false
+  done_hold_ms: 0
   timeouts:
     connect_ms: 3000
     response_ms: 1000

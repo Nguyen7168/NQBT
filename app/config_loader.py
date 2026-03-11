@@ -75,6 +75,7 @@ class PlcConfig:
     reconnect_switch_to_mock_on_startup_fail: bool = True
     reconnect_keep_mock_until_real_stable: bool = True
     reconnect_allow_plc_trigger_in_mock: bool = False
+    done_hold_ms: int = 0
 
 
 @dataclass
@@ -274,6 +275,7 @@ def load_config(path: str | Path) -> AppConfig:
         reconnect_switch_to_mock_on_startup_fail=bool(plc_raw.get("reconnect_switch_to_mock_on_startup_fail", True)),
         reconnect_keep_mock_until_real_stable=bool(plc_raw.get("reconnect_keep_mock_until_real_stable", True)),
         reconnect_allow_plc_trigger_in_mock=bool(plc_raw.get("reconnect_allow_plc_trigger_in_mock", False)),
+        done_hold_ms=int(plc_raw.get("done_hold_ms", 0)),
     )
 
     models_raw = _require(raw, "models")
