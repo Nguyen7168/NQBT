@@ -382,6 +382,12 @@ class MainWindow(QtWidgets.QMainWindow):
         self.model_sync_timer.setInterval(500)
         self.model_sync_timer.timeout.connect(self._model_sync_heartbeat)
 
+        # Safety heartbeat: ensure queued mode requests are applied as soon as app becomes idle.
+        self.mode_apply_timer = QtCore.QTimer(self)
+        self.mode_apply_timer.setInterval(200)
+        self.mode_apply_timer.timeout.connect(self._apply_requested_mode_if_idle)
+        self.mode_apply_timer.start()
+
     def _init_workers(self) -> None:
         self.inspection_thread = QtCore.QThread(self)
         self.worker = InspectionWorker(self.config, self.plc, use_dummy_camera=self._use_dummy_camera)
@@ -655,11 +661,24 @@ class MainWindow(QtWidgets.QMainWindow):
             LOGGER.warning("Mirror camera error: %s", clean_message)
             self._show_rate_limited_status("mirror_camera_error", f"Mirror camera error: {clean_message}", 1000)
             self.status_camera.setText("Camera: Error")
+            self.result_table.setRowCount(1)
+            self._set_table_row_heights(self.result_table)
+            self.result_table.setItem(0, 0, QtWidgets.QTableWidgetItem("MIRROR"))
+            self.result_table.setItem(0, 1, QtWidgets.QTableWidgetItem("-"))
+            self.result_table.setItem(0, 2, QtWidgets.QTableWidgetItem("NG"))
+            self.ok_label.setText("0")
+            self.ng_label.setText("1")
+            self._set_overall_status("NG")
         elif mirror_detect_error:
             clean_message = (message or "").replace("MIRROR_DETECT:", "", 1).strip()
             LOGGER.warning("Mirror detect error: %s", clean_message)
             self._show_rate_limited_status("mirror_detect_error", f"Mirror detect error: {clean_message}", 1000)
             self.status_camera.setText("Mirror: Detect Error")
+            self.result_table.setRowCount(1)
+            self._set_table_row_heights(self.result_table)
+            self.result_table.setItem(0, 0, QtWidgets.QTableWidgetItem("MIRROR"))
+            self.result_table.setItem(0, 1, QtWidgets.QTableWidgetItem("-"))
+            self.result_table.setItem(0, 2, QtWidgets.QTableWidgetItem("NG"))
             self.ok_label.setText("0")
             self.ng_label.setText("1")
             self._set_overall_status("NG")
@@ -667,6 +686,11 @@ class MainWindow(QtWidgets.QMainWindow):
             LOGGER.warning("Mirror warning (non-blocking): %s", message)
             self._show_rate_limited_status("mirror_warning", f"Mirror warning: {message}", 1000)
             self.status_camera.setText("Mirror: Warning")
+            self.result_table.setRowCount(1)
+            self._set_table_row_heights(self.result_table)
+            self.result_table.setItem(0, 0, QtWidgets.QTableWidgetItem("MIRROR"))
+            self.result_table.setItem(0, 1, QtWidgets.QTableWidgetItem("-"))
+            self.result_table.setItem(0, 2, QtWidgets.QTableWidgetItem("NG"))
             self.ok_label.setText("0")
             self.ng_label.setText("1")
             self._set_overall_status("NG")
@@ -815,8 +839,19 @@ class MainWindow(QtWidgets.QMainWindow):
         self._write_mode_current()
 
     def _apply_requested_mode_if_idle(self) -> None:
-        if self._cycle_request_inflight or self.plc.state.busy:
+        if self._cycle_request_inflight:
             return
+        if self.plc.state.busy:
+            busy_addr = getattr(self.config.plc.addr, "busy", None)
+            if busy_addr:
+                try:
+                    plc_busy = self.plc.read_bit(busy_addr)
+                except Exception:
+                    return
+                if plc_busy:
+                    return
+            else:
+                return
         if self._requested_mode != self._current_mode:
             self._set_mode(self._requested_mode)
 
@@ -1204,6 +1239,8 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.plc_monitor_timer.stop()
             if hasattr(self, "model_sync_timer"):
                 self.model_sync_timer.stop()
+            if hasattr(self, "mode_apply_timer"):
+                self.mode_apply_timer.stop()
             QtCore.QMetaObject.invokeMethod(self.worker, "shutdown", QtCore.Qt.BlockingQueuedConnection)
             if self.trigger_worker is not None:
                 self.trigger_worker.stop()
