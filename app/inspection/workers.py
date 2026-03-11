@@ -340,10 +340,18 @@ class InspectionWorker(QtCore.QObject):
             try:
                 self.cycle_started.emit()
                 self.plc.set_busy(True, reason="mirror_cycle")
-                self._ensure_camera_ready()
-                capture = self._capture_with_reconnect()
+                try:
+                    self._ensure_camera_ready()
+                    capture = self._capture_with_reconnect()
+                except Exception as exc:
+                    raise RuntimeError(f"MIRROR_CAMERA: {exc}") from exc
+
                 image = capture.image
-                overlay, diameter, is_ok = self._measure_mirror(image)
+                try:
+                    overlay, diameter, is_ok = self._measure_mirror(image)
+                except Exception as exc:
+                    raise RuntimeError(f"MIRROR_DETECT: {exc}") from exc
+
                 self._write_mirror_result(is_ok)
                 self.plc.set_error(False)
                 self.plc.set_done(True)
