@@ -385,8 +385,17 @@ class MainWindow(QtWidgets.QMainWindow):
         # Safety heartbeat: ensure queued mode requests are applied as soon as app becomes idle.
         self.mode_apply_timer = QtCore.QTimer(self)
         self.mode_apply_timer.setInterval(200)
-        self.mode_apply_timer.timeout.connect(self._apply_requested_mode_if_idle)
+        self.mode_apply_timer.timeout.connect(self._on_mode_apply_tick)
         self.mode_apply_timer.start()
+
+    def _on_mode_apply_tick(self) -> None:
+        self._update_manual_mode_controls()
+        self._apply_requested_mode_if_idle()
+
+    def _update_manual_mode_controls(self) -> None:
+        manual_allowed = self.plc.is_mock_mode()
+        for action in (self.mode_run_action, self.mode_sample_action, self.mode_mirror_action):
+            action.setEnabled(manual_allowed)
 
     def _init_workers(self) -> None:
         self.inspection_thread = QtCore.QThread(self)
@@ -815,7 +824,14 @@ class MainWindow(QtWidgets.QMainWindow):
             action.setChecked(True)
 
     def _on_manual_mode_selected(self, mode: OperatingMode) -> None:
-        # PLC has higher priority; manual mode can be overridden at next PLC mode update.
+        # Manual mode selection is allowed only when PLC is not connected to a real client.
+        if not self.plc.is_mock_mode():
+            self.statusBar().showMessage(
+                "Manual mode is locked while PLC is connected (PLC has priority)",
+                3000,
+            )
+            self._sync_mode_actions()
+            return
         self._requested_mode = mode
         self.statusBar().showMessage(f"Manual mode requested: {mode.name}", 2000)
         self._apply_requested_mode_if_idle()
