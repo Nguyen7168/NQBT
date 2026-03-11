@@ -42,6 +42,7 @@ plc:
   model_stable_ms: 200
   sample_trigger_poll_interval_ms: 50
   poll_error_backoff_ms: 1000
+  done_hold_ms: 0
   timeouts:
     connect_ms: 3000
     response_ms: 1000
