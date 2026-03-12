@@ -55,6 +55,7 @@ class PlcConfig:
     port: int
     addr: PlcAddressConfig
     timeouts: PlcTimeoutConfig = field(default_factory=PlcTimeoutConfig)
+    log_raw_request: bool = False
     log_raw_response: bool = False
     trigger_poll_interval_ms: int = 50
     trigger_min_interval_ms: int = 100
@@ -255,6 +256,7 @@ def load_config(path: str | Path) -> AppConfig:
         port=int(_require(plc_raw, "port")),
         addr=addr,
         timeouts=timeouts,
+        log_raw_request=bool(plc_raw.get("log_raw_request", False)),
         log_raw_response=bool(plc_raw.get("log_raw_response", False)),
         trigger_poll_interval_ms=int(plc_raw.get("trigger_poll_interval_ms", 50)),
         trigger_min_interval_ms=int(plc_raw.get("trigger_min_interval_ms", 100)),

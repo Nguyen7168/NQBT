@@ -298,6 +298,8 @@ class AsciiTcpClient(BasePLCClient):
     def _send_cmd(self, cmd: str) -> str:
         if self._sock is None:
             raise PLCError("PLC not connected")
+        if self._config.log_raw_request:
+            LOGGER.info("PLC raw request: %s", cmd)
         data = (cmd + "\r").encode("utf-8")
         self._sock.sendall(data)
         try:
