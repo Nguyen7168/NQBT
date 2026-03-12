@@ -37,6 +37,7 @@ plc:
     mode_request_word: "DM1533"
     mode_current_word: "DM1525"
     mirror_result_word: "EM1332"
+  log_raw_request: false
   log_raw_response: false
   trigger_poll_interval_ms: 50
   trigger_min_interval_ms: 100
@@ -57,6 +58,7 @@ plc:
   reconnect_switch_to_mock_on_startup_fail: true
   reconnect_keep_mock_until_real_stable: true
   reconnect_allow_plc_trigger_in_mock: false
+  done_hold_ms: 0
   timeouts:
     connect_ms: 3000
     response_ms: 1000

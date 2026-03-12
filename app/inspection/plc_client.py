@@ -28,6 +28,7 @@ class PlcHandshakeState:
     ready: bool = False
     run: bool = False
     last_cycle_started: Optional[float] = None
+    last_done_set_ts: Optional[float] = None
     last_results: Optional[List[bool]] = None
 
 
@@ -297,6 +298,8 @@ class AsciiTcpClient(BasePLCClient):
     def _send_cmd(self, cmd: str) -> str:
         if self._sock is None:
             raise PLCError("PLC not connected")
+        if self._config.log_raw_request:
+            LOGGER.info("PLC raw request: %s", cmd)
         data = (cmd + "\r").encode("utf-8")
         self._sock.sendall(data)
         try:
@@ -583,6 +586,8 @@ class PlcController:
         with self._lock:
             self._run_with_io_recovery(lambda: self.client.write_bit(self.config.addr.done, value))
             self.state.done = value
+            if value:
+                self.state.last_done_set_ts = time.time()
 
     def set_error(self, value: bool) -> None:
         with self._lock:
@@ -657,6 +662,16 @@ class PlcController:
                 time.sleep(0.05)
         except PLCError as exc:
             LOGGER.warning("PLC ACK wait failed: %s", exc)
+
+        hold_ms = max(0, int(getattr(self.config, "done_hold_ms", 0)))
+        done_on_since = self.state.last_done_set_ts
+        if hold_ms > 0 and done_on_since is not None:
+            elapsed_ms = (time.time() - done_on_since) * 1000.0
+            if elapsed_ms < hold_ms:
+                sleep_ms = hold_ms - elapsed_ms
+                LOGGER.debug("Holding DONE ON for %.0f ms (elapsed %.0f/%.0f ms)", sleep_ms, elapsed_ms, float(hold_ms))
+                time.sleep(sleep_ms / 1000.0)
+
         self.set_done(False)
         self.set_busy(False, reason="finalize")
         if self.state.error:

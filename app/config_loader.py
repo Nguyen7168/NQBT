@@ -55,6 +55,7 @@ class PlcConfig:
     port: int
     addr: PlcAddressConfig
     timeouts: PlcTimeoutConfig = field(default_factory=PlcTimeoutConfig)
+    log_raw_request: bool = False
     log_raw_response: bool = False
     trigger_poll_interval_ms: int = 50
     trigger_min_interval_ms: int = 100
@@ -75,6 +76,7 @@ class PlcConfig:
     reconnect_switch_to_mock_on_startup_fail: bool = True
     reconnect_keep_mock_until_real_stable: bool = True
     reconnect_allow_plc_trigger_in_mock: bool = False
+    done_hold_ms: int = 0
 
 
 @dataclass
@@ -254,6 +256,7 @@ def load_config(path: str | Path) -> AppConfig:
         port=int(_require(plc_raw, "port")),
         addr=addr,
         timeouts=timeouts,
+        log_raw_request=bool(plc_raw.get("log_raw_request", False)),
         log_raw_response=bool(plc_raw.get("log_raw_response", False)),
         trigger_poll_interval_ms=int(plc_raw.get("trigger_poll_interval_ms", 50)),
         trigger_min_interval_ms=int(plc_raw.get("trigger_min_interval_ms", 100)),
@@ -274,6 +277,7 @@ def load_config(path: str | Path) -> AppConfig:
         reconnect_switch_to_mock_on_startup_fail=bool(plc_raw.get("reconnect_switch_to_mock_on_startup_fail", True)),
         reconnect_keep_mock_until_real_stable=bool(plc_raw.get("reconnect_keep_mock_until_real_stable", True)),
         reconnect_allow_plc_trigger_in_mock=bool(plc_raw.get("reconnect_allow_plc_trigger_in_mock", False)),
+        done_hold_ms=int(plc_raw.get("done_hold_ms", 0)),
     )
 
     models_raw = _require(raw, "models")
