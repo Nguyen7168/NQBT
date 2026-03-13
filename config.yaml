@@ -65,7 +65,7 @@ models:
     path: "app/models/23-233HA-E.pth"
     provider: "cuda"
     input_size: 288
-    glass_threshold: 0.5
+    glass_threshold: 0.99
     glass_batch: 8
     glass_blur_kernel: 33
     glass_blur_sigma: 4.0
@@ -109,12 +109,12 @@ layout:
   circle_radius_expand: 0
   circle_erode_iter: 0
   circle_dilate_iter: 0
-  circle_blur_kernel: 9
-  circle_threshold: 70
+  circle_blur_kernel: 7
+  circle_threshold: 75
   circle_use_otsu: false
   circle_invert: false
   ws_scale: 0.4
-  ws_dist_ratio: 0.6
+  ws_dist_ratio: 0.55
   ws_open_ksize: 7
   ws_open_iter: 0
   ws_bg_dilate_iter: 2
