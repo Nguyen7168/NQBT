@@ -205,6 +205,7 @@ class AppConfig:
     mirror_min_contour_area: float = 5000.0
     mirror_diameter_min: float = 0.0
     mirror_diameter_max: float = 99999.0
+    timing_log_enabled: bool = False
 
 
 class ConfigError(RuntimeError):
@@ -343,4 +344,5 @@ def load_config(path: str | Path) -> AppConfig:
         mirror_min_contour_area=float(raw.get("mirror_min_contour_area", 5000.0)),
         mirror_diameter_min=float(raw.get("mirror_diameter_min", 0.0)),
         mirror_diameter_max=float(raw.get("mirror_diameter_max", 99999.0)),
+        timing_log_enabled=bool(raw.get("timing_log_enabled", False)),
     )
