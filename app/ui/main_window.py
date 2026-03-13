@@ -633,7 +633,7 @@ class MainWindow(QtWidgets.QMainWindow):
         expected_total = result.expected_circles if result.expected_circles is not None else self.config.layout.count
         overall = "OK" if expected_total > 0 and len(result.statuses) == expected_total and result.ng_total == 0 else "NG"
         self._set_overall_status(overall)
-        self.speed_label.setText(f"{result.anomaly_inference_ms:.1f} ms")
+        self.speed_label.setText(f"{result.cycle_elapsed_ms:.1f} ms")
         if result.detected_circles is not None and result.expected_circles is not None:
             self.status_camera.setText(
                 f"Camera: Ready (circles {result.detected_circles}/{result.expected_circles})"
