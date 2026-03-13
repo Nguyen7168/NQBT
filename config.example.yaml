@@ -1,4 +1,5 @@
 app_title: "Bearing Inspection"
+timing_log_enabled: false
 
 camera:
   serial: ""

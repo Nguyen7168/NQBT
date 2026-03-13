@@ -1,4 +1,5 @@
 app_title: "CAMERA_1"
+timing_log_enabled: false
 
 camera:
   serial: "40736983"

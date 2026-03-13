@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from enum import IntEnum
-from typing import Dict, List, Optional, Sequence
+from typing import Dict, List, MutableMapping, Optional, Sequence
 
 import cv2
 import numpy as np
@@ -46,6 +46,7 @@ class InspectionResult:
     statuses: List[str]
     ng_total: int
     anomaly_inference_ms: float
+    cycle_elapsed_ms: float
     yolo_result: Optional[YoloResult]
     timestamp: float
     model_path: str
@@ -67,6 +68,7 @@ class InspectionResult:
             ],
             "ng_total": self.ng_total,
             "inference_ms": self.anomaly_inference_ms,
+            "cycle_elapsed_ms": self.cycle_elapsed_ms,
             "yolo": None
             if self.yolo_result is None
             else {
@@ -170,14 +172,64 @@ class InspectionWorker(QtCore.QObject):
             self._camera_recover_stable_success = 1
             return capture
 
-    def _build_result_from_image(self, image: np.ndarray) -> InspectionResult:
-        patches, detected = self.cropper.crop_with_count(image)
+    @staticmethod
+    def _timed_call(timings: MutableMapping[str, float], key: str, action) -> object:
+        start = time.perf_counter()
+        result = action()
+        timings[key] = (time.perf_counter() - start) * 1000.0
+        return result
+
+    def _log_cycle_timing(
+        self,
+        cycle_type: str,
+        timings: MutableMapping[str, float],
+        result: Optional[InspectionResult] = None,
+    ) -> None:
+        if not bool(getattr(self.config, "timing_log_enabled", False)):
+            return
+        fields = [
+            f"camera={timings.get('camera', 0.0):.1f}ms",
+            f"crop={timings.get('crop', 0.0):.1f}ms",
+            f"anomaly={timings.get('anomaly', 0.0):.1f}ms",
+            f"anomaly_model={timings.get('anomaly_model', 0.0):.1f}ms",
+            f"plc_busy={timings.get('plc_busy', 0.0):.1f}ms",
+            f"plc_run={timings.get('plc_run', 0.0):.1f}ms",
+            f"plc_write_results={timings.get('plc_write_results', 0.0):.1f}ms",
+            f"plc_error={timings.get('plc_error', 0.0):.1f}ms",
+            f"plc_done={timings.get('plc_done', 0.0):.1f}ms",
+            f"total={timings.get('cycle_total', 0.0):.1f}ms",
+        ]
+        if result is not None:
+            fields.extend(
+                [
+                    f"detected={result.detected_circles}",
+                    f"expected={result.expected_circles}",
+                    f"patches={len(result.patches)}",
+                    f"ng={result.ng_total}",
+                ]
+            )
+        LOGGER.info("Timing[%s] %s", cycle_type, " | ".join(fields))
+
+    def _build_result_from_image(
+        self,
+        image: np.ndarray,
+        timings: Optional[MutableMapping[str, float]] = None,
+    ) -> InspectionResult:
+        if timings is not None:
+            patches, detected = self._timed_call(timings, "crop", lambda: self.cropper.crop_with_count(image))
+        else:
+            patches, detected = self.cropper.crop_with_count(image)
         expected = self.config.layout.count
         if self.anomaly is None:
             raise RuntimeError(
                 f"Anomaly model not available: {self._anomaly_error or 'unknown error'}"
             )
-        anomaly = self.anomaly.infer([p.image for p in patches]) if patches else None
+        anomaly = None
+        if patches:
+            if timings is not None:
+                anomaly = self._timed_call(timings, "anomaly", lambda: self.anomaly.infer([p.image for p in patches]))
+            else:
+                anomaly = self.anomaly.infer([p.image for p in patches])
         algo = (self.config.models.algo or "INP").upper()
         if algo == "GLASS":
             threshold = float(self.config.models.glass.glass_threshold)
@@ -185,6 +237,8 @@ class InspectionWorker(QtCore.QObject):
         else:
             threshold = float(self.config.models.inp.inp_threshold)
             model_path = self.config.models.inp.path
+        if timings is not None:
+            timings["anomaly_model"] = float(anomaly.inference_ms) if anomaly is not None else 0.0
         statuses = (["OK" if score <= threshold else "NG" for score in anomaly.scores] if anomaly is not None else [])
         ng_total = sum(1 for status in statuses if status == "NG")
 
@@ -204,6 +258,7 @@ class InspectionWorker(QtCore.QObject):
             statuses=statuses,
             ng_total=ng_total,
             anomaly_inference_ms=anomaly.inference_ms if anomaly is not None else 0.0,
+            cycle_elapsed_ms=0.0,
             yolo_result=yolo_result,
             timestamp=time.time(),
             model_path=model_path,
@@ -213,30 +268,45 @@ class InspectionWorker(QtCore.QObject):
             expected_circles=expected,
         )
 
-    def _run_standard_cycle(self, image: np.ndarray) -> InspectionResult:
-        result = self._build_result_from_image(image)
+    def _run_standard_cycle(self, image: np.ndarray, timings: Optional[MutableMapping[str, float]] = None) -> InspectionResult:
+        result = self._build_result_from_image(image, timings=timings)
         mismatch = result.detected_circles != result.expected_circles
         if mismatch:
             expected = result.expected_circles or self.config.layout.count
             LOGGER.warning("Circle detection mismatch: detected %s, expected %s", result.detected_circles, expected)
-            self.plc.write_results([False] * expected)
+            if timings is not None:
+                self._timed_call(timings, "plc_write_results", lambda: self.plc.write_results([False] * expected))
+            else:
+                self.plc.write_results([False] * expected)
         else:
-            self.plc.write_results([status == "OK" for status in result.statuses])
-        self.plc.set_error(False)
+            if timings is not None:
+                self._timed_call(timings, "plc_write_results", lambda: self.plc.write_results([status == "OK" for status in result.statuses]))
+            else:
+                self.plc.write_results([status == "OK" for status in result.statuses])
+        if timings is not None:
+            self._timed_call(timings, "plc_error", lambda: self.plc.set_error(False))
+        else:
+            self.plc.set_error(False)
         return result
 
     @QtCore.pyqtSlot()
     def run_cycle(self) -> None:
         with self._lock:
+            cycle_start = time.perf_counter()
+            timings: Dict[str, float] = {}
+            result: Optional[InspectionResult] = None
             try:
                 self.cycle_started.emit()
-                self.plc.set_busy(True, reason="run_cycle")
+                self._timed_call(timings, "plc_busy", lambda: self.plc.set_busy(True, reason="run_cycle"))
                 self._ensure_camera_ready()
-                self.plc.set_run(True)
-                capture = self._capture_with_reconnect()
+                self._timed_call(timings, "plc_run", lambda: self.plc.set_run(True))
+                capture = self._timed_call(timings, "camera", self._capture_with_reconnect)
                 LOGGER.debug("Captured image with shape %s", capture.image.shape)
-                result = self._run_standard_cycle(capture.image)
-                self.plc.set_done(True)
+                result = self._run_standard_cycle(capture.image, timings=timings)
+                self._timed_call(timings, "plc_done", lambda: self.plc.set_done(True))
+                result.cycle_elapsed_ms = (time.perf_counter() - cycle_start) * 1000.0
+                timings["cycle_total"] = result.cycle_elapsed_ms
+                self._log_cycle_timing("run", timings, result)
                 self.cycle_completed.emit(result)
             except Exception as exc:
                 LOGGER.exception("Inspection cycle failed: %s", exc)
@@ -245,6 +315,8 @@ class InspectionWorker(QtCore.QObject):
                     self.plc.set_error(True)
                     self.plc.set_done(True)
                 finally:
+                    timings["cycle_total"] = (time.perf_counter() - cycle_start) * 1000.0
+                    self._log_cycle_timing("run_failed", timings, result)
                     self.cycle_failed.emit(str(exc))
             finally:
                 try:
@@ -255,15 +327,21 @@ class InspectionWorker(QtCore.QObject):
     @QtCore.pyqtSlot(str)
     def run_sample_cycle(self, sample_image_path: str) -> None:
         with self._lock:
+            cycle_start = time.perf_counter()
+            timings: Dict[str, float] = {}
+            result: Optional[InspectionResult] = None
             try:
                 self.cycle_started.emit()
-                self.plc.set_busy(True, reason="sample_cycle")
-                image = cv2.imread(sample_image_path)
+                self._timed_call(timings, "plc_busy", lambda: self.plc.set_busy(True, reason="sample_cycle"))
+                image = self._timed_call(timings, "camera", lambda: cv2.imread(sample_image_path))
                 if image is None:
                     raise RuntimeError(f"Cannot read sample image: {sample_image_path}")
                 LOGGER.info("Running sample cycle using image: %s", sample_image_path)
-                result = self._run_standard_cycle(image)
-                self.plc.set_done(True)
+                result = self._run_standard_cycle(image, timings=timings)
+                self._timed_call(timings, "plc_done", lambda: self.plc.set_done(True))
+                result.cycle_elapsed_ms = (time.perf_counter() - cycle_start) * 1000.0
+                timings["cycle_total"] = result.cycle_elapsed_ms
+                self._log_cycle_timing("sample", timings, result)
                 self.cycle_completed.emit(result)
             except Exception as exc:
                 LOGGER.exception("Sample cycle failed: %s", exc)
@@ -272,6 +350,8 @@ class InspectionWorker(QtCore.QObject):
                     self.plc.set_error(True)
                     self.plc.set_done(True)
                 finally:
+                    timings["cycle_total"] = (time.perf_counter() - cycle_start) * 1000.0
+                    self._log_cycle_timing("sample_failed", timings, result)
                     self.cycle_failed.emit(str(exc))
             finally:
                 try:
@@ -460,6 +540,7 @@ class InspectionWorker(QtCore.QObject):
                     statuses=statuses,
                     ng_total=ng_total,
                     anomaly_inference_ms=anomaly.inference_ms if anomaly is not None else 0.0,
+                    cycle_elapsed_ms=0.0,
                     yolo_result=yolo_result,
                     timestamp=time.time(),
                     model_path=model_path,
