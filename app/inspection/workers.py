@@ -46,6 +46,7 @@ class InspectionResult:
     statuses: List[str]
     ng_total: int
     anomaly_inference_ms: float
+    cycle_elapsed_ms: float
     yolo_result: Optional[YoloResult]
     timestamp: float
     model_path: str
@@ -67,6 +68,7 @@ class InspectionResult:
             ],
             "ng_total": self.ng_total,
             "inference_ms": self.anomaly_inference_ms,
+            "cycle_elapsed_ms": self.cycle_elapsed_ms,
             "yolo": None
             if self.yolo_result is None
             else {
@@ -204,6 +206,7 @@ class InspectionWorker(QtCore.QObject):
             statuses=statuses,
             ng_total=ng_total,
             anomaly_inference_ms=anomaly.inference_ms if anomaly is not None else 0.0,
+            cycle_elapsed_ms=0.0,
             yolo_result=yolo_result,
             timestamp=time.time(),
             model_path=model_path,
@@ -228,6 +231,7 @@ class InspectionWorker(QtCore.QObject):
     @QtCore.pyqtSlot()
     def run_cycle(self) -> None:
         with self._lock:
+            cycle_start = time.perf_counter()
             try:
                 self.cycle_started.emit()
                 self.plc.set_busy(True, reason="run_cycle")
@@ -237,6 +241,7 @@ class InspectionWorker(QtCore.QObject):
                 LOGGER.debug("Captured image with shape %s", capture.image.shape)
                 result = self._run_standard_cycle(capture.image)
                 self.plc.set_done(True)
+                result.cycle_elapsed_ms = (time.perf_counter() - cycle_start) * 1000.0
                 self.cycle_completed.emit(result)
             except Exception as exc:
                 LOGGER.exception("Inspection cycle failed: %s", exc)
@@ -255,6 +260,7 @@ class InspectionWorker(QtCore.QObject):
     @QtCore.pyqtSlot(str)
     def run_sample_cycle(self, sample_image_path: str) -> None:
         with self._lock:
+            cycle_start = time.perf_counter()
             try:
                 self.cycle_started.emit()
                 self.plc.set_busy(True, reason="sample_cycle")
@@ -264,6 +270,7 @@ class InspectionWorker(QtCore.QObject):
                 LOGGER.info("Running sample cycle using image: %s", sample_image_path)
                 result = self._run_standard_cycle(image)
                 self.plc.set_done(True)
+                result.cycle_elapsed_ms = (time.perf_counter() - cycle_start) * 1000.0
                 self.cycle_completed.emit(result)
             except Exception as exc:
                 LOGGER.exception("Sample cycle failed: %s", exc)
@@ -460,6 +467,7 @@ class InspectionWorker(QtCore.QObject):
                     statuses=statuses,
                     ng_total=ng_total,
                     anomaly_inference_ms=anomaly.inference_ms if anomaly is not None else 0.0,
+                    cycle_elapsed_ms=0.0,
                     yolo_result=yolo_result,
                     timestamp=time.time(),
                     model_path=model_path,
