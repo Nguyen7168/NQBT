@@ -62,7 +62,7 @@ models:
     inp_max_ratio: 0.0
     inp_bin_thresh: 0.2
   glass:
-    path: app/models/gls_epoch_124_loss_0_1330_271img.pth
+    path: "app/models/23-233HA-E.pth"
     provider: "cuda"
     input_size: 288
     glass_threshold: 0.5
@@ -88,7 +88,7 @@ models:
       glass_threshold: 0.5
 
 io:
-  save_images: true
+  save_images: false
   output_dir: "runs/cam1/latest"
   raw_dir: "runs/cam1/raw"
   crops_dir: "runs/cam1/crops"
@@ -104,25 +104,25 @@ layout:
   cols: 7
   patch_padding: 10
   crop_method: "circle"
-  circle_min_radius: 250
-  circle_max_radius: 270
+  circle_min_radius: 240
+  circle_max_radius: 260
   circle_radius_expand: 0
   circle_erode_iter: 0
   circle_dilate_iter: 0
-  circle_blur_kernel: 3
-  circle_threshold: 50
+  circle_blur_kernel: 9
+  circle_threshold: 70
   circle_use_otsu: false
   circle_invert: false
   ws_scale: 0.4
-  ws_dist_ratio: 0.5
-  ws_open_ksize: 5
-  ws_open_iter: 2
+  ws_dist_ratio: 0.6
+  ws_open_ksize: 7
+  ws_open_iter: 0
   ws_bg_dilate_iter: 2
   ws_dist_mask_size: 5
   ws_min_area_px: 2000
   ws_max_contour_pts: 800
-  overlay_index_text_mode: "auto"  # auto|fixed
-  overlay_index_font_scale: 1.0      # used when mode=fixed
+  overlay_index_text_mode: "fixed"  # auto|fixed
+  overlay_index_font_scale: 2.0      # used when mode=fixed
   overlay_index_thickness: 2         # used when mode=fixed
   overlay_index_outline_extra: 2     # outline thickness = thickness + extra
   overlay_index_min_scale: 0.5       # used when mode=auto
