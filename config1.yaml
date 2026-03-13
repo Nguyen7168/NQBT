@@ -88,7 +88,7 @@ models:
       glass_threshold: 0.5
 
 io:
-  save_images: true
+  save_images: false
   output_dir: "runs/cam2/latest"
   raw_dir: "runs/cam2/raw"
   crops_dir: "runs/cam2/crops"
@@ -104,19 +104,19 @@ layout:
   cols: 7
   patch_padding: 10
   crop_method: "circle"
-  circle_min_radius: 250
-  circle_max_radius: 270
+  circle_min_radius: 240
+  circle_max_radius: 260
   circle_radius_expand: 0
   circle_erode_iter: 0
   circle_dilate_iter: 0
-  circle_blur_kernel: 3
-  circle_threshold: 50
+  circle_blur_kernel: 9
+  circle_threshold: 70
   circle_use_otsu: false
   circle_invert: false
   ws_scale: 0.4
-  ws_dist_ratio: 0.5
-  ws_open_ksize: 5
-  ws_open_iter: 2
+  ws_dist_ratio: 0.6
+  ws_open_ksize: 7
+  ws_open_iter: 0
   ws_bg_dilate_iter: 2
   ws_dist_mask_size: 5
   ws_min_area_px: 2000
