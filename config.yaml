@@ -77,16 +77,23 @@ models:
     path: "models/yolo.engine"
     conf_thres: 0.25
     iou_thres: 0.45
+    crop_enabled: false
+    crop_path: "app/models/crop_yolo/23-233HA-E/best.pt"
+    crop_conf_thres: 0.5
+    crop_iou_thres: 0.7
+    crop_imgsz: 960
   active_recipe_code: 1
   glass_recipes:
     - code: 1
       path: "app/models/23-233HA-E.pth"
       name: "23-233HA-E"
       glass_threshold: 0.98
+      crop_yolo_path: "app/models/crop_yolo/23-233HA-E/best.pt"
     - code: 2
       path: "app/models/gls_epoch_124_loss_0_1330_271img.pth"
       name: "ITEM_2"
       glass_threshold: 0.5
+      crop_yolo_path: "app/models/crop_yolo/ITEM_2/best.pt"
 
 io:
   save_images: false
@@ -104,7 +111,7 @@ layout:
   rows: 4
   cols: 7
   patch_padding: 10
-  crop_method: "circle"
+  crop_method: "circle"  # circle | yolo_circle
   circle_min_radius: 240
   circle_max_radius: 260
   circle_radius_expand: 0
@@ -114,6 +121,8 @@ layout:
   circle_threshold: 75
   circle_use_otsu: false
   circle_invert: false
+  yolo_circle_radius_expand: 6
+  yolo_crop_fallback_to_circle: true
   ws_scale: 0.4
   ws_dist_ratio: 0.55
   ws_open_ksize: 7

@@ -334,13 +334,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self.test_mirror_from_image_action = QtWidgets.QAction("Test Mirror from Image", self)
         tools_menu.addAction(self.test_mirror_from_image_action)
 
-        mode_toolbar = self.addToolBar("Mode")
-        mode_toolbar.addAction(self.mode_run_action)
-        mode_toolbar.addAction(self.mode_sample_action)
-        mode_toolbar.addAction(self.mode_mirror_action)
-
-        tools_toolbar = self.addToolBar("Tools")
-        tools_toolbar.addAction(self.test_mirror_from_image_action)
 
         self.status_camera = QtWidgets.QLabel("Camera: Idle")
         self.status_plc = QtWidgets.QLabel(f"PLC: {self._plc_status}")
@@ -1114,10 +1107,11 @@ class MainWindow(QtWidgets.QMainWindow):
             self.statusBar().showMessage(f"Failed to set BUSY for model switch: {exc}", 5000)
         QtCore.QMetaObject.invokeMethod(
             self.worker,
-            "reload_anomaly_model_with_threshold",
+            "reload_recipe_models",
             QtCore.Qt.QueuedConnection,
             QtCore.Q_ARG(str, recipe.path),
             QtCore.Q_ARG(float, threshold),
+            QtCore.Q_ARG(str, (recipe.crop_yolo_path or "")),
         )
 
     @QtCore.pyqtSlot(str, float)
