@@ -1114,10 +1114,11 @@ class MainWindow(QtWidgets.QMainWindow):
             self.statusBar().showMessage(f"Failed to set BUSY for model switch: {exc}", 5000)
         QtCore.QMetaObject.invokeMethod(
             self.worker,
-            "reload_anomaly_model_with_threshold",
+            "reload_recipe_models",
             QtCore.Qt.QueuedConnection,
             QtCore.Q_ARG(str, recipe.path),
             QtCore.Q_ARG(float, threshold),
+            QtCore.Q_ARG(str, (recipe.crop_yolo_path or "")),
         )
 
     @QtCore.pyqtSlot(str, float)

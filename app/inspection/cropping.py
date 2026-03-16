@@ -8,6 +8,7 @@ import numpy as np
 import cv2
 
 from app.config_loader import LayoutConfig
+from app.models.yolo import YoloDetector
 
 
 @dataclass
@@ -287,4 +288,56 @@ class CircleCropper:
         return patches
 
 
-__all__ = ["CircleCropper", "CropResult", "CircleDetectionError"]
+class YoloCircleCropper(CircleCropper):
+    """Cropper that uses YOLO detections to derive circles from bounding boxes."""
+
+    def __init__(self, layout: LayoutConfig, detector: YoloDetector) -> None:
+        super().__init__(layout)
+        self.detector = detector
+
+    def crop_with_count(self, image: np.ndarray) -> tuple[List[CropResult], int]:
+        if image.ndim not in (2, 3):
+            raise ValueError("Unsupported image format")
+
+        h, w = image.shape[:2]
+        yolo_result = self.detector.detect(image)
+
+        circles: List[tuple[float, float, float]] = []
+        radius_expand = float(self.layout.yolo_circle_radius_expand)
+        for box in yolo_result.boxes:
+            x1, y1, x2, y2 = map(float, box[:4])
+            x1 = max(0.0, min(float(w - 1), x1))
+            x2 = max(0.0, min(float(w - 1), x2))
+            y1 = max(0.0, min(float(h - 1), y1))
+            y2 = max(0.0, min(float(h - 1), y2))
+            bw = max(0.0, x2 - x1)
+            bh = max(0.0, y2 - y1)
+            if bw <= 1.0 or bh <= 1.0:
+                continue
+            cx = (x1 + x2) * 0.5
+            cy = (y1 + y2) * 0.5
+            r = (min(bw, bh) * 0.5) + radius_expand
+            if r <= 1.0:
+                continue
+            if not (self.layout.circle_min_radius <= r <= self.layout.circle_max_radius):
+                continue
+            circles.append((cx, cy, r))
+
+        if not circles:
+            return [], 0
+
+        arr = self._sort_row_major(np.array(circles, dtype=np.float32), self.layout.rows, self.layout.cols)
+        detected = len(arr)
+
+        patches: List[CropResult] = []
+        pad = int(self.layout.patch_padding)
+        for idx, (cx, cy, r) in enumerate(arr, start=1):
+            mask = self._build_outer_disk_mask((h, w), cx, cy, r)
+            cropped_roi, bbox = self._crop_by_mask(image, mask, pad)
+            if cropped_roi is None or bbox is None:
+                continue
+            patches.append(CropResult(index=idx, image=cropped_roi, bbox=bbox))
+        return patches, detected
+
+
+__all__ = ["CircleCropper", "YoloCircleCropper", "CropResult", "CircleDetectionError"]
