@@ -6,6 +6,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import logging
 from pathlib import Path
 
 
@@ -16,6 +17,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output", default="runs/test_crop_yolo", help="Output directory")
     parser.add_argument("--recipe-code", type=int, default=None, help="Recipe code to pick crop_yolo_path")
     parser.add_argument("--recipe-name", default=None, help="Recipe name to pick crop_yolo_path")
+    parser.add_argument("--debug-boxes", action="store_true", help="Enable per-box debug logs (w,h,r)")
     parser.add_argument("--force-circle", action="store_true", help="Force legacy circle cropper")
     return parser.parse_args()
 
@@ -53,6 +55,11 @@ def _resolve_recipe_crop_path(cfg, src: Path, recipe_code: int | None, recipe_na
 
 def main() -> int:
     args = parse_args()
+
+    logging.basicConfig(
+        level=logging.DEBUG if args.debug_boxes else logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    )
 
     import cv2
 

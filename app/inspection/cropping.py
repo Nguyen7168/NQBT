@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import logging
 from typing import List
 
 import numpy as np
@@ -9,6 +10,9 @@ import cv2
 
 from app.config_loader import LayoutConfig
 from app.models.yolo import YoloDetector
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass
@@ -304,7 +308,7 @@ class YoloCircleCropper(CircleCropper):
 
         circles: List[tuple[float, float, float]] = []
         radius_expand = float(self.layout.yolo_circle_radius_expand)
-        for box in yolo_result.boxes:
+        for box_idx, box in enumerate(yolo_result.boxes, start=1):
             x1, y1, x2, y2 = map(float, box[:4])
             x1 = max(0.0, min(float(w - 1), x1))
             x2 = max(0.0, min(float(w - 1), x2))
@@ -313,17 +317,49 @@ class YoloCircleCropper(CircleCropper):
             bw = max(0.0, x2 - x1)
             bh = max(0.0, y2 - y1)
             if bw <= 1.0 or bh <= 1.0:
+                LOGGER.debug(
+                    "YOLO crop box[%d] skipped: tiny box (w=%.2f, h=%.2f)",
+                    box_idx,
+                    bw,
+                    bh,
+                )
                 continue
             cx = (x1 + x2) * 0.5
             cy = (y1 + y2) * 0.5
             r = (min(bw, bh) * 0.5) + radius_expand
             if r <= 1.0:
+                LOGGER.debug(
+                    "YOLO crop box[%d] skipped: non-positive radius r=%.2f (w=%.2f, h=%.2f)",
+                    box_idx,
+                    r,
+                    bw,
+                    bh,
+                )
                 continue
             if not (self.layout.circle_min_radius <= r <= self.layout.circle_max_radius):
+                LOGGER.debug(
+                    "YOLO crop box[%d] filtered by radius: w=%.2f h=%.2f r=%.2f not in [%.2f, %.2f]",
+                    box_idx,
+                    bw,
+                    bh,
+                    r,
+                    float(self.layout.circle_min_radius),
+                    float(self.layout.circle_max_radius),
+                )
                 continue
+            LOGGER.debug(
+                "YOLO crop box[%d] accepted: w=%.2f h=%.2f r=%.2f center=(%.2f, %.2f)",
+                box_idx,
+                bw,
+                bh,
+                r,
+                cx,
+                cy,
+            )
             circles.append((cx, cy, r))
 
         if not circles:
+            LOGGER.debug("YOLO crop: no circles accepted from %d boxes", len(yolo_result.boxes))
             return [], 0
 
         arr = self._sort_row_major(np.array(circles, dtype=np.float32), self.layout.rows, self.layout.cols)
