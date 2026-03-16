@@ -83,7 +83,7 @@ models:
     crop_iou_thres: 0.7
     crop_imgsz: 960
   active_recipe_code: 1
-  glass_recipes:
+  glass_recipes:  # each recipe must define its own glass_threshold
     - code: 1
       path: "app/models/23-233HA-E.pth"
       name: "23-233HA-E"

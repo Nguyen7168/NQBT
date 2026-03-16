@@ -1094,11 +1094,7 @@ class MainWindow(QtWidgets.QMainWindow):
             except PLCError:
                 pass
             return
-        threshold = (
-            float(recipe.glass_threshold)
-            if recipe.glass_threshold is not None
-            else float(self.config.models.glass.glass_threshold)
-        )
+        threshold = float(recipe.glass_threshold)
         self._pending_recipe_code = int(model_code)
         self._recipe_switch_in_progress = True
         try:

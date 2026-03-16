@@ -84,7 +84,11 @@ class GlassRecipeConfig:
     code: int
     path: str
     name: Optional[str] = None
+<<<<<<< codex/add-yolo-based-cropping-method-tlqgl2
+    glass_threshold: float = 0.5
+=======
     glass_threshold: Optional[float] = None
+>>>>>>> main
     crop_yolo_path: Optional[str] = None
 
 
@@ -322,7 +326,14 @@ def load_config(path: str | Path) -> AppConfig:
     else:
         raise ConfigError("Missing models.inp and models.glass sections")
     yolo = YoloModelConfig(**models_raw.get("yolo", {}))
-    glass_recipes = [GlassRecipeConfig(**entry) for entry in models_raw.get("glass_recipes", [])]
+    glass_recipes = []
+    for entry in models_raw.get("glass_recipes", []):
+        if entry.get("glass_threshold") is None:
+            code = entry.get("code", "?")
+            raise ConfigError(f"Missing required glass_threshold for recipe code: {code}")
+        recipe_entry = dict(entry)
+        recipe_entry["glass_threshold"] = float(recipe_entry["glass_threshold"])
+        glass_recipes.append(GlassRecipeConfig(**recipe_entry))
     models = ModelConfig(
         algo=algo,
         inp=inp,
