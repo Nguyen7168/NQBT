@@ -334,13 +334,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self.test_mirror_from_image_action = QtWidgets.QAction("Test Mirror from Image", self)
         tools_menu.addAction(self.test_mirror_from_image_action)
 
-        mode_toolbar = self.addToolBar("Mode")
-        mode_toolbar.addAction(self.mode_run_action)
-        mode_toolbar.addAction(self.mode_sample_action)
-        mode_toolbar.addAction(self.mode_mirror_action)
-
-        tools_toolbar = self.addToolBar("Tools")
-        tools_toolbar.addAction(self.test_mirror_from_image_action)
 
         self.status_camera = QtWidgets.QLabel("Camera: Idle")
         self.status_plc = QtWidgets.QLabel(f"PLC: {self._plc_status}")
