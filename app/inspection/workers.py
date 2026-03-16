@@ -16,7 +16,7 @@ import numpy as np
 
 from app.config_loader import AppConfig
 from app.inspection.camera import BaslerCamera, DummyCamera
-from app.inspection.cropping import CropResult, CircleCropper, CircleDetectionError
+from app.inspection.cropping import CropResult, CircleCropper, CircleDetectionError, YoloCircleCropper
 from app.inspection.plc_client import PlcController
 from app.models.anomaly import AnomalyDetector
 from app.models.yolo import YoloDetector, YoloResult
@@ -100,7 +100,6 @@ class InspectionWorker(QtCore.QObject):
         super().__init__(parent)
         self.config = config
         self.plc = plc
-        # Always use circle-based cropper per current requirements
         self.cropper = CircleCropper(config.layout)
         self.camera = DummyCamera(config.camera) if use_dummy_camera else BaslerCamera(config.camera)
         self.anomaly: Optional[AnomalyDetector]
@@ -121,10 +120,46 @@ class InspectionWorker(QtCore.QObject):
                 )
             except Exception as exc:
                 LOGGER.warning("Failed to initialise YOLO detector: %s", exc)
+        self.crop_yolo: Optional[YoloDetector] = None
+        self._configure_cropper(crop_yolo_path=getattr(config.models.yolo, "crop_path", None))
         self._lock = threading.Lock()
         self._camera_ready = False
         self._camera_fail_streak = 0
         self._camera_recover_stable_success = 0
+
+    def _init_crop_yolo_detector(self, model_path: Optional[str] = None) -> Optional[YoloDetector]:
+        yolo_cfg = self.config.models.yolo
+        if not bool(getattr(yolo_cfg, "crop_enabled", False)):
+            return None
+        path = (model_path or yolo_cfg.crop_path or "").strip()
+        if not path:
+            return None
+        return YoloDetector(
+            path,
+            float(getattr(yolo_cfg, "crop_conf_thres", 0.5)),
+            float(getattr(yolo_cfg, "crop_iou_thres", 0.7)),
+            imgsz=int(getattr(yolo_cfg, "crop_imgsz", 960)),
+        )
+
+    def _configure_cropper(self, crop_yolo_path: Optional[str] = None) -> None:
+        method = (getattr(self.config.layout, "crop_method", "circle") or "circle").strip().lower()
+        if method != "yolo_circle":
+            self.crop_yolo = None
+            self.cropper = CircleCropper(self.config.layout)
+            return
+        try:
+            self.crop_yolo = self._init_crop_yolo_detector(model_path=crop_yolo_path)
+            if self.crop_yolo is None:
+                raise RuntimeError("YOLO crop model is not configured")
+            self.cropper = YoloCircleCropper(self.config.layout, self.crop_yolo)
+            LOGGER.info("Using YOLO circle cropper")
+        except Exception as exc:
+            if bool(getattr(self.config.layout, "yolo_crop_fallback_to_circle", True)):
+                LOGGER.warning("YOLO crop initialisation failed (%s); fallback to circle cropper", exc)
+                self.crop_yolo = None
+                self.cropper = CircleCropper(self.config.layout)
+            else:
+                raise
 
     @QtCore.pyqtSlot()
     def connect_camera(self) -> None:
@@ -190,6 +225,10 @@ class InspectionWorker(QtCore.QObject):
         fields = [
             f"camera={timings.get('camera', 0.0):.1f}ms",
             f"crop={timings.get('crop', 0.0):.1f}ms",
+            f"crop_yolo_detect_ms={timings.get('crop_yolo_detect_ms', 0.0):.1f}ms",
+            f"crop_box_to_circle_ms={timings.get('crop_box_to_circle_ms', 0.0):.1f}ms",
+            f"crop_mask_and_cut_ms={timings.get('crop_mask_and_cut_ms', 0.0):.1f}ms",
+            f"crop_sort_ms={timings.get('crop_sort_ms', 0.0):.1f}ms",
             f"anomaly={timings.get('anomaly', 0.0):.1f}ms",
             f"anomaly_model={timings.get('anomaly_model', 0.0):.1f}ms",
             f"plc_busy={timings.get('plc_busy', 0.0):.1f}ms",
@@ -217,6 +256,14 @@ class InspectionWorker(QtCore.QObject):
     ) -> InspectionResult:
         if timings is not None:
             patches, detected = self._timed_call(timings, "crop", lambda: self.cropper.crop_with_count(image))
+            if isinstance(self.cropper, YoloCircleCropper):
+                for key in (
+                    "crop_yolo_detect_ms",
+                    "crop_box_to_circle_ms",
+                    "crop_mask_and_cut_ms",
+                    "crop_sort_ms",
+                ):
+                    timings[key] = float(self.cropper.last_timing_ms.get(key, 0.0))
         else:
             patches, detected = self.cropper.crop_with_count(image)
         expected = self.config.layout.count
@@ -465,6 +512,10 @@ class InspectionWorker(QtCore.QObject):
 
     @QtCore.pyqtSlot(str, float)
     def reload_anomaly_model_with_threshold(self, model_path: str, threshold: float) -> None:
+        self.reload_recipe_models(model_path, threshold, "")
+
+    @QtCore.pyqtSlot(str, float, str)
+    def reload_recipe_models(self, model_path: str, threshold: float, crop_yolo_path: str = "") -> None:
         with self._lock:
             try:
                 # Update the current algorithm's model path
@@ -478,6 +529,11 @@ class InspectionWorker(QtCore.QObject):
                     effective_threshold = float(self.config.models.inp.inp_threshold)
                 # Recreate detector with updated models config
                 self.anomaly = AnomalyDetector(self.config.models)
+                resolved_crop_path = (crop_yolo_path or "").strip() or getattr(self.config.models.yolo, "crop_path", None)
+                if resolved_crop_path:
+                    self.config.models.yolo.crop_path = resolved_crop_path
+                if (self.config.models.algo or "INP").upper() == "GLASS":
+                    self._configure_cropper(crop_yolo_path=resolved_crop_path)
                 self._anomaly_error = None
                 LOGGER.info("Reloaded anomaly model from %s", model_path)
                 self.model_reloaded.emit(model_path, effective_threshold)
