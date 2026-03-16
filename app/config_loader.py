@@ -84,7 +84,11 @@ class GlassRecipeConfig:
     code: int
     path: str
     name: Optional[str] = None
+<<<<<<< codex/add-yolo-based-cropping-method-tlqgl2
     glass_threshold: float = 0.5
+=======
+    glass_threshold: Optional[float] = None
+>>>>>>> main
     crop_yolo_path: Optional[str] = None
 
 
