@@ -18,6 +18,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--recipe-code", type=int, default=None, help="Recipe code to pick crop_yolo_path")
     parser.add_argument("--recipe-name", default=None, help="Recipe name to pick crop_yolo_path")
     parser.add_argument("--debug-boxes", action="store_true", help="Enable per-box debug logs (w,h,r)")
+    parser.add_argument(
+        "--save-mode",
+        choices=("per_image", "flat"),
+        default="per_image",
+        help="Save crops per input image folder or flatten all crops into one output folder",
+    )
     parser.add_argument("--force-circle", action="store_true", help="Force legacy circle cropper")
     return parser.parse_args()
 
@@ -107,11 +113,17 @@ def main() -> int:
         expected = int(cfg.layout.count)
         print(f"[INFO] {img_path.name}: detected={detected}, expected={expected}, saved={len(patches)}")
 
-        stem_out = out / img_path.stem
-        stem_out.mkdir(parents=True, exist_ok=True)
-        for patch in patches:
-            save_path = stem_out / f"{patch.index:02d}.png"
-            cv2.imwrite(str(save_path), patch.image)
+        if args.save_mode == "per_image":
+            stem_out = out / img_path.stem
+            stem_out.mkdir(parents=True, exist_ok=True)
+            for patch in patches:
+                save_path = stem_out / f"{patch.index:02d}.png"
+                cv2.imwrite(str(save_path), patch.image)
+        else:
+            # Flat save mode for training-data collection.
+            for patch in patches:
+                save_path = out / f"{img_path.stem}_{patch.index:02d}.png"
+                cv2.imwrite(str(save_path), patch.image)
 
     return 0
 
