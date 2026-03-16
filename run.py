@@ -6,12 +6,10 @@ import logging
 import sys
 from pathlib import Path
 
-from PyQt5 import QtWidgets
-
 from app.config_loader import AppConfig, ConfigError, load_config
 from app.inspection.plc_client import PlcController, PLCError, MockPLCClient
 from app.ui.main_window import MainWindow
-
+from PyQt5 import QtWidgets
 
 def configure_logging(log_level: str) -> None:
     logging.basicConfig(
