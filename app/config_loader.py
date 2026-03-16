@@ -84,7 +84,7 @@ class GlassRecipeConfig:
     code: int
     path: str
     name: Optional[str] = None
-    glass_threshold: Optional[float] = None
+    glass_threshold: float = 0.5
     crop_yolo_path: Optional[str] = None
 
 

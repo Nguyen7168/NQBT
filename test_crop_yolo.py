@@ -14,6 +14,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--config", default="config.yaml", help="Config YAML path")
     parser.add_argument("--source", required=True, help="Image file or directory")
     parser.add_argument("--output", default="runs/test_crop_yolo", help="Output directory")
+    parser.add_argument("--recipe-code", type=int, default=None, help="Recipe code to pick crop_yolo_path")
+    parser.add_argument("--recipe-name", default=None, help="Recipe name to pick crop_yolo_path")
     parser.add_argument("--force-circle", action="store_true", help="Force legacy circle cropper")
     return parser.parse_args()
 
@@ -23,6 +25,30 @@ def _iter_images(path: Path) -> list[Path]:
         return [path]
     exts = {".bmp", ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".webp"}
     return sorted([p for p in path.iterdir() if p.is_file() and p.suffix.lower() in exts])
+
+
+def _resolve_recipe_crop_path(cfg, src: Path, recipe_code: int | None, recipe_name: str | None) -> str | None:
+    recipes = list(getattr(cfg.models, "glass_recipes", []))
+    if not recipes:
+        return None
+
+    target = None
+    if recipe_code is not None:
+        target = next((r for r in recipes if int(r.code) == int(recipe_code)), None)
+    elif recipe_name:
+        name = recipe_name.strip().lower()
+        target = next((r for r in recipes if (r.name or "").strip().lower() == name), None)
+    else:
+        # Auto by source folder name (common test flow: samples/<recipe_name>)
+        src_name = (src.parent.name if src.is_file() else src.name).strip().lower()
+        target = next((r for r in recipes if (r.name or "").strip().lower() == src_name), None)
+        # Fallback by active recipe code
+        if target is None and cfg.models.active_recipe_code is not None:
+            target = next((r for r in recipes if int(r.code) == int(cfg.models.active_recipe_code)), None)
+
+    if target is None:
+        return None
+    return (target.crop_yolo_path or "").strip() or None
 
 
 def main() -> int:
@@ -42,9 +68,10 @@ def main() -> int:
     use_yolo = (cfg.layout.crop_method or "circle").lower() == "yolo_circle" and not args.force_circle
 
     if use_yolo:
-        path = (cfg.models.yolo.crop_path or "").strip()
+        recipe_path = _resolve_recipe_crop_path(cfg, src, args.recipe_code, args.recipe_name)
+        path = recipe_path or (cfg.models.yolo.crop_path or "").strip()
         if not path:
-            print("[ERROR] models.yolo.crop_path is empty")
+            print("[ERROR] Cannot resolve crop_yolo_path from recipe or models.yolo.crop_path")
             return 1
         detector = YoloDetector(
             path,
