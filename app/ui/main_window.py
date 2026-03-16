@@ -9,7 +9,6 @@ from pathlib import Path
 
 import cv2
 import numpy as np
-from PyQt5 import QtCore, QtGui, QtWidgets
 
 from app.config_loader import AppConfig, GlassRecipeConfig
 from app.inspection.plc_client import PlcController, PLCError
@@ -22,6 +21,7 @@ from app.inspection.workers import (
     PlcTriggerWorker,
     SaveWorker,
 )
+from PyQt5 import QtCore, QtGui, QtWidgets
 from app.utils import numpy_to_qimage
 
 LOGGER = logging.getLogger(__name__)
