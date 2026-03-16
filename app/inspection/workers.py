@@ -13,7 +13,6 @@ from typing import Dict, List, MutableMapping, Optional, Sequence
 
 import cv2
 import numpy as np
-from PyQt5 import QtCore
 
 from app.config_loader import AppConfig
 from app.inspection.camera import BaslerCamera, DummyCamera
@@ -21,6 +20,7 @@ from app.inspection.cropping import CropResult, CircleCropper, CircleDetectionEr
 from app.inspection.plc_client import PlcController
 from app.models.anomaly import AnomalyDetector
 from app.models.yolo import YoloDetector, YoloResult
+from PyQt5 import QtCore
 from app.utils import ensure_dir, save_image
 try:
     from kiem_guong import draw_overlay, find_outer_circle_from_edges
