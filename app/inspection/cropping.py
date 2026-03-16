@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import logging
+from time import perf_counter
 from typing import List
 
 import numpy as np
@@ -298,16 +299,33 @@ class YoloCircleCropper(CircleCropper):
     def __init__(self, layout: LayoutConfig, detector: YoloDetector) -> None:
         super().__init__(layout)
         self.detector = detector
+        self.last_timing_ms: dict[str, float] = {
+            "crop_yolo_detect_ms": 0.0,
+            "crop_box_to_circle_ms": 0.0,
+            "crop_mask_and_cut_ms": 0.0,
+            "crop_sort_ms": 0.0,
+        }
 
     def crop_with_count(self, image: np.ndarray) -> tuple[List[CropResult], int]:
         if image.ndim not in (2, 3):
             raise ValueError("Unsupported image format")
 
+        self.last_timing_ms = {
+            "crop_yolo_detect_ms": 0.0,
+            "crop_box_to_circle_ms": 0.0,
+            "crop_mask_and_cut_ms": 0.0,
+            "crop_sort_ms": 0.0,
+        }
         h, w = image.shape[:2]
+
+        t0 = perf_counter()
         yolo_result = self.detector.detect(image)
+        self.last_timing_ms["crop_yolo_detect_ms"] = (perf_counter() - t0) * 1000.0
 
         circles: List[tuple[float, float, float]] = []
         radius_expand = float(self.layout.yolo_circle_radius_expand)
+
+        t1 = perf_counter()
         for box_idx, box in enumerate(yolo_result.boxes, start=1):
             x1, y1, x2, y2 = map(float, box[:4])
             x1 = max(0.0, min(float(w - 1), x1))
@@ -357,22 +375,28 @@ class YoloCircleCropper(CircleCropper):
                 cy,
             )
             circles.append((cx, cy, r))
+        self.last_timing_ms["crop_box_to_circle_ms"] = (perf_counter() - t1) * 1000.0
 
         if not circles:
             LOGGER.debug("YOLO crop: no circles accepted from %d boxes", len(yolo_result.boxes))
             return [], 0
 
+        t2 = perf_counter()
         arr = self._sort_row_major(np.array(circles, dtype=np.float32), self.layout.rows, self.layout.cols)
+        self.last_timing_ms["crop_sort_ms"] = (perf_counter() - t2) * 1000.0
         detected = len(arr)
 
         patches: List[CropResult] = []
         pad = int(self.layout.patch_padding)
+
+        t3 = perf_counter()
         for idx, (cx, cy, r) in enumerate(arr, start=1):
             mask = self._build_outer_disk_mask((h, w), cx, cy, r)
             cropped_roi, bbox = self._crop_by_mask(image, mask, pad)
             if cropped_roi is None or bbox is None:
                 continue
             patches.append(CropResult(index=idx, image=cropped_roi, bbox=bbox))
+        self.last_timing_ms["crop_mask_and_cut_ms"] = (perf_counter() - t3) * 1000.0
         return patches, detected
 
 

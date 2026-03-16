@@ -225,6 +225,10 @@ class InspectionWorker(QtCore.QObject):
         fields = [
             f"camera={timings.get('camera', 0.0):.1f}ms",
             f"crop={timings.get('crop', 0.0):.1f}ms",
+            f"crop_yolo_detect_ms={timings.get('crop_yolo_detect_ms', 0.0):.1f}ms",
+            f"crop_box_to_circle_ms={timings.get('crop_box_to_circle_ms', 0.0):.1f}ms",
+            f"crop_mask_and_cut_ms={timings.get('crop_mask_and_cut_ms', 0.0):.1f}ms",
+            f"crop_sort_ms={timings.get('crop_sort_ms', 0.0):.1f}ms",
             f"anomaly={timings.get('anomaly', 0.0):.1f}ms",
             f"anomaly_model={timings.get('anomaly_model', 0.0):.1f}ms",
             f"plc_busy={timings.get('plc_busy', 0.0):.1f}ms",
@@ -252,6 +256,14 @@ class InspectionWorker(QtCore.QObject):
     ) -> InspectionResult:
         if timings is not None:
             patches, detected = self._timed_call(timings, "crop", lambda: self.cropper.crop_with_count(image))
+            if isinstance(self.cropper, YoloCircleCropper):
+                for key in (
+                    "crop_yolo_detect_ms",
+                    "crop_box_to_circle_ms",
+                    "crop_mask_and_cut_ms",
+                    "crop_sort_ms",
+                ):
+                    timings[key] = float(self.cropper.last_timing_ms.get(key, 0.0))
         else:
             patches, detected = self.cropper.crop_with_count(image)
         expected = self.config.layout.count
