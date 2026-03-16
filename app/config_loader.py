@@ -84,7 +84,8 @@ class GlassRecipeConfig:
     code: int
     path: str
     name: Optional[str] = None
-    glass_threshold: Optional[float] = None
+    glass_threshold: float = 0.5
+    crop_yolo_path: Optional[str] = None
 
 
 @dataclass
@@ -118,6 +119,11 @@ class YoloModelConfig:
     path: Optional[str] = None
     conf_thres: float = 0.25
     iou_thres: float = 0.45
+    crop_enabled: bool = False
+    crop_path: Optional[str] = None
+    crop_conf_thres: float = 0.5
+    crop_iou_thres: float = 0.7
+    crop_imgsz: int = 960
 
 
 @dataclass
@@ -149,7 +155,7 @@ class LayoutConfig:
     rows: int = 4
     cols: int = 7
     patch_padding: int = 0
-    # Deprecated: was used to select cropper. Grid cropper removed; always circle-based.
+    # Crop strategy: "circle" (legacy watershed) or "yolo_circle" (YOLO bbox -> inscribed circle).
     crop_method: str = "circle"
     # Circle crop parameters (defaults inspired by crop_hc_23_240.py)
     circle_min_radius: int = 300
@@ -161,6 +167,8 @@ class LayoutConfig:
     circle_threshold: int = 50
     circle_use_otsu: bool = False
     circle_invert: bool = False
+    yolo_circle_radius_expand: int = 0
+    yolo_crop_fallback_to_circle: bool = True
     # Watershed-based split parameters
     ws_scale: float = 0.5
     ws_dist_ratio: float = 0.4
@@ -314,7 +322,14 @@ def load_config(path: str | Path) -> AppConfig:
     else:
         raise ConfigError("Missing models.inp and models.glass sections")
     yolo = YoloModelConfig(**models_raw.get("yolo", {}))
-    glass_recipes = [GlassRecipeConfig(**entry) for entry in models_raw.get("glass_recipes", [])]
+    glass_recipes = []
+    for entry in models_raw.get("glass_recipes", []):
+        if entry.get("glass_threshold") is None:
+            code = entry.get("code", "?")
+            raise ConfigError(f"Missing required glass_threshold for recipe code: {code}")
+        recipe_entry = dict(entry)
+        recipe_entry["glass_threshold"] = float(recipe_entry["glass_threshold"])
+        glass_recipes.append(GlassRecipeConfig(**recipe_entry))
     models = ModelConfig(
         algo=algo,
         inp=inp,
