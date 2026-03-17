@@ -122,10 +122,22 @@ class InspectionWorker(QtCore.QObject):
                 LOGGER.warning("Failed to initialise YOLO detector: %s", exc)
         self.crop_yolo: Optional[YoloDetector] = None
         self._configure_cropper(crop_yolo_path=getattr(config.models.yolo, "crop_path", None))
+        self._active_glass_threshold = self._resolve_active_glass_threshold()
         self._lock = threading.Lock()
         self._camera_ready = False
         self._camera_fail_streak = 0
         self._camera_recover_stable_success = 0
+
+    def _resolve_active_glass_threshold(self) -> float:
+        active_code = getattr(self.config.models, "active_recipe_code", None)
+        recipes = list(getattr(self.config.models, "glass_recipes", []))
+        if active_code is not None:
+            for recipe in recipes:
+                if int(getattr(recipe, "code", -1)) == int(active_code):
+                    return float(recipe.glass_threshold)
+        if recipes:
+            return float(recipes[0].glass_threshold)
+        return float(self.config.models.glass.glass_threshold)
 
     def _init_crop_yolo_detector(self, model_path: Optional[str] = None) -> Optional[YoloDetector]:
         yolo_cfg = self.config.models.yolo
@@ -279,7 +291,7 @@ class InspectionWorker(QtCore.QObject):
                 anomaly = self.anomaly.infer([p.image for p in patches])
         algo = (self.config.models.algo or "INP").upper()
         if algo == "GLASS":
-            threshold = float(self.config.models.glass.glass_threshold)
+            threshold = float(self._active_glass_threshold)
             model_path = self.config.models.glass.path
         else:
             threshold = float(self.config.models.inp.inp_threshold)
@@ -508,7 +520,10 @@ class InspectionWorker(QtCore.QObject):
 
     @QtCore.pyqtSlot(str)
     def reload_anomaly_model(self, model_path: str) -> None:
-        self.reload_anomaly_model_with_threshold(model_path, self.config.models.glass.glass_threshold if (self.config.models.algo or "INP").upper() == "GLASS" else self.config.models.inp.inp_threshold)
+        self.reload_anomaly_model_with_threshold(
+            model_path,
+            self._active_glass_threshold if (self.config.models.algo or "INP").upper() == "GLASS" else self.config.models.inp.inp_threshold,
+        )
 
     @QtCore.pyqtSlot(str, float)
     def reload_anomaly_model_with_threshold(self, model_path: str, threshold: float) -> None:
@@ -521,8 +536,8 @@ class InspectionWorker(QtCore.QObject):
                 # Update the current algorithm's model path
                 if (self.config.models.algo or "INP").upper() == "GLASS":
                     self.config.models.glass.path = model_path
-                    self.config.models.glass.glass_threshold = float(threshold)
-                    effective_threshold = float(self.config.models.glass.glass_threshold)
+                    self._active_glass_threshold = float(threshold)
+                    effective_threshold = float(self._active_glass_threshold)
                 else:
                     self.config.models.inp.path = model_path
                     self.config.models.inp.inp_threshold = float(threshold)
@@ -568,7 +583,7 @@ class InspectionWorker(QtCore.QObject):
                     anomaly = self.anomaly.infer([p.image for p in patches])
                 algo = (self.config.models.algo or "INP").upper()
                 if algo == "GLASS":
-                    threshold = float(self.config.models.glass.glass_threshold)
+                    threshold = float(self._active_glass_threshold)
                     model_path = self.config.models.glass.path
                 else:
                     threshold = float(self.config.models.inp.inp_threshold)

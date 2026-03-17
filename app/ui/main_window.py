@@ -209,6 +209,10 @@ class MainWindow(QtWidgets.QMainWindow):
         table_scroll.setWidget(self.result_table)
         inspection_content_layout.addWidget(table_scroll, stretch=0)
 
+        self.applied_threshold_label = QtWidgets.QLabel(f"Applied threshold: {self._current_threshold():.3f}")
+        self.applied_threshold_label.setAlignment(QtCore.Qt.AlignRight)
+        inspection_content_layout.addWidget(self.applied_threshold_label, stretch=0)
+
         inspection_scroll = QtWidgets.QScrollArea()
         inspection_scroll.setWidgetResizable(True)
         inspection_scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
@@ -620,6 +624,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.result_table.setItem(row, 0, QtWidgets.QTableWidgetItem(str(patch.index)))
             self.result_table.setItem(row, 1, QtWidgets.QTableWidgetItem(f"{score:.3f}"))
             self.result_table.setItem(row, 2, QtWidgets.QTableWidgetItem(status))
+        self.applied_threshold_label.setText(f"Applied threshold: {result.threshold:.3f}")
         ok_total = sum(1 for status in result.statuses if status == "OK")
         self.ok_label.setText(str(ok_total))
         self.ng_label.setText(str(result.ng_total))
@@ -739,6 +744,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.ng_label.setText("0" if is_ok else "1")
         self._set_overall_status("OK" if is_ok else "NG")
         self.status_camera.setText("Camera: Ready")
+        self.applied_threshold_label.setText("Applied threshold: -")
         self.statusBar().showMessage(
             f"Mirror test {'OK' if is_ok else 'NG'} | diameter={diameter:.2f}px",
             4000,
@@ -1123,6 +1129,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 recipe_name = recipe.name
         self.model_label.setText(recipe_name)
         self.model_label.setStyleSheet("")
+        self.applied_threshold_label.setText(f"Applied threshold: {threshold:.3f}")
         self.statusBar().showMessage(
             f"Model switched: {recipe_name} (th={threshold:.3f})",
             3000,
@@ -1221,11 +1228,14 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _current_threshold(self) -> float:
         algo = (self.config.models.algo or "INP").upper()
-        return (
-            float(self.config.models.glass.glass_threshold)
-            if algo == "GLASS"
-            else float(self.config.models.inp.inp_threshold)
-        )
+        if algo != "GLASS":
+            return float(self.config.models.inp.inp_threshold)
+        if self._current_recipe_code is not None:
+            recipe = self._recipe_by_code.get(int(self._current_recipe_code))
+            if recipe is not None:
+                return float(recipe.glass_threshold)
+        # Safety fallback for transitional configs.
+        return float(self.config.models.glass.glass_threshold)
 
     def _current_model_path(self) -> str:
         algo = (self.config.models.algo or "INP").upper()
