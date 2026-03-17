@@ -25,16 +25,31 @@ class YoloResult:
 
 
 class YoloDetector:
-    def __init__(self, model_path: str, conf_thres: float, iou_thres: float) -> None:
+    def __init__(
+        self,
+        model_path: str,
+        conf_thres: float,
+        iou_thres: float,
+        imgsz: int | None = None,
+    ) -> None:
         if YOLO is None:
             raise RuntimeError("ultralytics is not installed")
         self._model = YOLO(model_path)
         self._conf = conf_thres
         self._iou = iou_thres
+        self._imgsz = imgsz
 
     def detect(self, image: np.ndarray) -> YoloResult:
         start = perf_counter()
-        predictions = self._model.predict(source=image, conf=self._conf, iou=self._iou, verbose=False)
+        predict_kwargs = {
+            "source": image,
+            "conf": self._conf,
+            "iou": self._iou,
+            "verbose": False,
+        }
+        if self._imgsz:
+            predict_kwargs["imgsz"] = int(self._imgsz)
+        predictions = self._model.predict(**predict_kwargs)
         elapsed = (perf_counter() - start) * 1000.0
         boxes: List[np.ndarray] = []
         scores: List[float] = []
