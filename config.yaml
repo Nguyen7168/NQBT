@@ -113,9 +113,9 @@ layout:
   rows: 4
   cols: 7
   patch_padding: 10
-  crop_method: "circle"  # circle | yolo_circle
+  crop_method: "yolo_circle"  # circle | yolo_circle
   circle_min_radius: 240
-  circle_max_radius: 260
+  circle_max_radius: 270
   circle_radius_expand: 0
   circle_erode_iter: 0
   circle_dilate_iter: 0
