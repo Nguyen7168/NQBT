@@ -299,12 +299,74 @@ class YoloCircleCropper(CircleCropper):
     def __init__(self, layout: LayoutConfig, detector: YoloDetector) -> None:
         super().__init__(layout)
         self.detector = detector
+        self._disk_mask_cache: dict[int, np.ndarray] = {}
         self.last_timing_ms: dict[str, float] = {
             "crop_yolo_detect_ms": 0.0,
             "crop_box_to_circle_ms": 0.0,
             "crop_mask_and_cut_ms": 0.0,
             "crop_sort_ms": 0.0,
         }
+
+    def _get_disk_mask(self, radius: int) -> np.ndarray:
+        rr = max(1, int(radius))
+        cached = self._disk_mask_cache.get(rr)
+        if cached is not None:
+            return cached
+        size = rr * 2 + 1
+        disk = np.zeros((size, size), dtype=np.uint8)
+        cv2.circle(disk, (rr, rr), rr, 255, -1)
+        self._disk_mask_cache[rr] = disk
+        return disk
+
+    def _crop_by_circle_fast(
+        self,
+        image: np.ndarray,
+        cx: float,
+        cy: float,
+        radius: float,
+        pad: int,
+    ) -> tuple[np.ndarray | None, tuple[int, int, int, int] | None]:
+        h, w = image.shape[:2]
+        rr = max(1, int(round(radius)))
+
+        x1 = max(int(np.floor(cx - rr)) - pad, 0)
+        x2 = min(int(np.ceil(cx + rr)) + pad + 1, w)
+        y1 = max(int(np.floor(cy - rr)) - pad, 0)
+        y2 = min(int(np.ceil(cy + rr)) + pad + 1, h)
+        if x2 <= x1 or y2 <= y1:
+            return None, None
+
+        roi = image[y1:y2, x1:x2].copy()
+        mroi = np.zeros((y2 - y1, x2 - x1), dtype=np.uint8)
+
+        center_x = int(round(cx)) - x1
+        center_y = int(round(cy)) - y1
+
+        disk = self._get_disk_mask(rr)
+        d_h, d_w = disk.shape
+        dx1 = center_x - rr
+        dy1 = center_y - rr
+        dx2 = dx1 + d_w
+        dy2 = dy1 + d_h
+
+        ix1 = max(dx1, 0)
+        iy1 = max(dy1, 0)
+        ix2 = min(dx2, mroi.shape[1])
+        iy2 = min(dy2, mroi.shape[0])
+        if ix2 <= ix1 or iy2 <= iy1:
+            return None, None
+
+        sx1 = ix1 - dx1
+        sy1 = iy1 - dy1
+        sx2 = sx1 + (ix2 - ix1)
+        sy2 = sy1 + (iy2 - iy1)
+        mroi[iy1:iy2, ix1:ix2] = disk[sy1:sy2, sx1:sx2]
+
+        if roi.ndim == 2:
+            masked = cv2.bitwise_and(roi, roi, mask=mroi)
+        else:
+            masked = cv2.bitwise_and(roi, roi, mask=mroi)
+        return masked, (x1, y1, x2, y2)
 
     def crop_with_count(self, image: np.ndarray) -> tuple[List[CropResult], int]:
         if image.ndim not in (2, 3):
@@ -391,8 +453,7 @@ class YoloCircleCropper(CircleCropper):
 
         t3 = perf_counter()
         for idx, (cx, cy, r) in enumerate(arr, start=1):
-            mask = self._build_outer_disk_mask((h, w), cx, cy, r)
-            cropped_roi, bbox = self._crop_by_mask(image, mask, pad)
+            cropped_roi, bbox = self._crop_by_circle_fast(image, float(cx), float(cy), float(r), pad)
             if cropped_roi is None or bbox is None:
                 continue
             patches.append(CropResult(index=idx, image=cropped_roi, bbox=bbox))

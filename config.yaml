@@ -82,6 +82,8 @@ models:
     crop_conf_thres: 0.5
     crop_iou_thres: 0.7
     crop_imgsz: 960
+    crop_device: "cuda:0"
+    crop_classes: null
   active_recipe_code: 1
   glass_recipes:  # each recipe must define its own glass_threshold
     - code: 1
@@ -111,7 +113,7 @@ layout:
   rows: 4
   cols: 7
   patch_padding: 10
-  crop_method: "yolo_circle"  # circle | yolo_circle
+  crop_method: "circle"  # circle | yolo_circle
   circle_min_radius: 240
   circle_max_radius: 260
   circle_radius_expand: 0

@@ -151,6 +151,8 @@ class InspectionWorker(QtCore.QObject):
             float(getattr(yolo_cfg, "crop_conf_thres", 0.5)),
             float(getattr(yolo_cfg, "crop_iou_thres", 0.7)),
             imgsz=int(getattr(yolo_cfg, "crop_imgsz", 960)),
+            device=str(getattr(yolo_cfg, "crop_device", "cuda:0")),
+            classes=getattr(yolo_cfg, "crop_classes", None),
         )
 
     def _configure_cropper(self, crop_yolo_path: Optional[str] = None) -> None:

@@ -124,6 +124,8 @@ class YoloModelConfig:
     crop_conf_thres: float = 0.5
     crop_iou_thres: float = 0.7
     crop_imgsz: int = 960
+    crop_device: str = "cuda:0"
+    crop_classes: Optional[List[int]] = None
 
 
 @dataclass

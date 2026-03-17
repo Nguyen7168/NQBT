@@ -31,6 +31,8 @@ class YoloDetector:
         conf_thres: float,
         iou_thres: float,
         imgsz: int | None = None,
+        device: str | None = None,
+        classes: Sequence[int] | None = None,
     ) -> None:
         if YOLO is None:
             raise RuntimeError("ultralytics is not installed")
@@ -38,6 +40,9 @@ class YoloDetector:
         self._conf = conf_thres
         self._iou = iou_thres
         self._imgsz = imgsz
+        self._device = (device or "").strip() or None
+        self._classes = list(classes) if classes is not None else None
+        self._device_failed_once = False
 
     def detect(self, image: np.ndarray) -> YoloResult:
         start = perf_counter()
@@ -49,7 +54,20 @@ class YoloDetector:
         }
         if self._imgsz:
             predict_kwargs["imgsz"] = int(self._imgsz)
-        predictions = self._model.predict(**predict_kwargs)
+        if self._classes is not None:
+            predict_kwargs["classes"] = self._classes
+        if self._device and not self._device_failed_once:
+            predict_kwargs["device"] = self._device
+        try:
+            predictions = self._model.predict(**predict_kwargs)
+        except Exception:
+            if self._device and not self._device_failed_once:
+                self._device_failed_once = True
+                LOGGER.warning("YOLO predict failed with device=%s, retrying with default device", self._device)
+                predict_kwargs.pop("device", None)
+                predictions = self._model.predict(**predict_kwargs)
+            else:
+                raise
         elapsed = (perf_counter() - start) * 1000.0
         boxes: List[np.ndarray] = []
         scores: List[float] = []

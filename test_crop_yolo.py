@@ -91,6 +91,8 @@ def main() -> int:
             cfg.models.yolo.crop_conf_thres,
             cfg.models.yolo.crop_iou_thres,
             imgsz=cfg.models.yolo.crop_imgsz,
+            device=getattr(cfg.models.yolo, "crop_device", "cuda:0"),
+            classes=getattr(cfg.models.yolo, "crop_classes", None),
         )
         cropper = YoloCircleCropper(cfg.layout, detector)
         print(f"[INFO] Using YOLO crop model: {path}")
