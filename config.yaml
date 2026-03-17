@@ -77,7 +77,7 @@ models:
     path: "models/yolo.engine"
     conf_thres: 0.25
     iou_thres: 0.45
-    crop_enabled: false
+    crop_enabled: true
     crop_path: "app/models/crop_yolo/23-233HA-E/best.pt"
     crop_conf_thres: 0.5
     crop_iou_thres: 0.7
