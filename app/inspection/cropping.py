@@ -2,12 +2,18 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import logging
+from time import perf_counter
 from typing import List
 
 import numpy as np
 import cv2
 
 from app.config_loader import LayoutConfig
+from app.models.yolo import YoloDetector
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass
@@ -287,4 +293,172 @@ class CircleCropper:
         return patches
 
 
-__all__ = ["CircleCropper", "CropResult", "CircleDetectionError"]
+class YoloCircleCropper(CircleCropper):
+    """Cropper that uses YOLO detections to derive circles from bounding boxes."""
+
+    def __init__(self, layout: LayoutConfig, detector: YoloDetector) -> None:
+        super().__init__(layout)
+        self.detector = detector
+        self._disk_mask_cache: dict[int, np.ndarray] = {}
+        self.last_timing_ms: dict[str, float] = {
+            "crop_yolo_detect_ms": 0.0,
+            "crop_box_to_circle_ms": 0.0,
+            "crop_mask_and_cut_ms": 0.0,
+            "crop_sort_ms": 0.0,
+        }
+
+    def _get_disk_mask(self, radius: int) -> np.ndarray:
+        rr = max(1, int(radius))
+        cached = self._disk_mask_cache.get(rr)
+        if cached is not None:
+            return cached
+        size = rr * 2 + 1
+        disk = np.zeros((size, size), dtype=np.uint8)
+        cv2.circle(disk, (rr, rr), rr, 255, -1)
+        self._disk_mask_cache[rr] = disk
+        return disk
+
+    def _crop_by_circle_fast(
+        self,
+        image: np.ndarray,
+        cx: float,
+        cy: float,
+        radius: float,
+        pad: int,
+    ) -> tuple[np.ndarray | None, tuple[int, int, int, int] | None]:
+        h, w = image.shape[:2]
+        rr = max(1, int(round(radius)))
+
+        x1 = max(int(np.floor(cx - rr)) - pad, 0)
+        x2 = min(int(np.ceil(cx + rr)) + pad + 1, w)
+        y1 = max(int(np.floor(cy - rr)) - pad, 0)
+        y2 = min(int(np.ceil(cy + rr)) + pad + 1, h)
+        if x2 <= x1 or y2 <= y1:
+            return None, None
+
+        roi = image[y1:y2, x1:x2].copy()
+        mroi = np.zeros((y2 - y1, x2 - x1), dtype=np.uint8)
+
+        center_x = int(round(cx)) - x1
+        center_y = int(round(cy)) - y1
+
+        disk = self._get_disk_mask(rr)
+        d_h, d_w = disk.shape
+        dx1 = center_x - rr
+        dy1 = center_y - rr
+        dx2 = dx1 + d_w
+        dy2 = dy1 + d_h
+
+        ix1 = max(dx1, 0)
+        iy1 = max(dy1, 0)
+        ix2 = min(dx2, mroi.shape[1])
+        iy2 = min(dy2, mroi.shape[0])
+        if ix2 <= ix1 or iy2 <= iy1:
+            return None, None
+
+        sx1 = ix1 - dx1
+        sy1 = iy1 - dy1
+        sx2 = sx1 + (ix2 - ix1)
+        sy2 = sy1 + (iy2 - iy1)
+        mroi[iy1:iy2, ix1:ix2] = disk[sy1:sy2, sx1:sx2]
+
+        if roi.ndim == 2:
+            masked = cv2.bitwise_and(roi, roi, mask=mroi)
+        else:
+            masked = cv2.bitwise_and(roi, roi, mask=mroi)
+        return masked, (x1, y1, x2, y2)
+
+    def crop_with_count(self, image: np.ndarray) -> tuple[List[CropResult], int]:
+        if image.ndim not in (2, 3):
+            raise ValueError("Unsupported image format")
+
+        self.last_timing_ms = {
+            "crop_yolo_detect_ms": 0.0,
+            "crop_box_to_circle_ms": 0.0,
+            "crop_mask_and_cut_ms": 0.0,
+            "crop_sort_ms": 0.0,
+        }
+        h, w = image.shape[:2]
+
+        t0 = perf_counter()
+        yolo_result = self.detector.detect(image)
+        self.last_timing_ms["crop_yolo_detect_ms"] = (perf_counter() - t0) * 1000.0
+
+        circles: List[tuple[float, float, float]] = []
+        radius_expand = float(self.layout.yolo_circle_radius_expand)
+
+        t1 = perf_counter()
+        for box_idx, box in enumerate(yolo_result.boxes, start=1):
+            x1, y1, x2, y2 = map(float, box[:4])
+            x1 = max(0.0, min(float(w - 1), x1))
+            x2 = max(0.0, min(float(w - 1), x2))
+            y1 = max(0.0, min(float(h - 1), y1))
+            y2 = max(0.0, min(float(h - 1), y2))
+            bw = max(0.0, x2 - x1)
+            bh = max(0.0, y2 - y1)
+            if bw <= 1.0 or bh <= 1.0:
+                LOGGER.debug(
+                    "YOLO crop box[%d] skipped: tiny box (w=%.2f, h=%.2f)",
+                    box_idx,
+                    bw,
+                    bh,
+                )
+                continue
+            cx = (x1 + x2) * 0.5
+            cy = (y1 + y2) * 0.5
+            r = (min(bw, bh) * 0.5) + radius_expand
+            if r <= 1.0:
+                LOGGER.debug(
+                    "YOLO crop box[%d] skipped: non-positive radius r=%.2f (w=%.2f, h=%.2f)",
+                    box_idx,
+                    r,
+                    bw,
+                    bh,
+                )
+                continue
+            if not (self.layout.circle_min_radius <= r <= self.layout.circle_max_radius):
+                LOGGER.debug(
+                    "YOLO crop box[%d] filtered by radius: w=%.2f h=%.2f r=%.2f not in [%.2f, %.2f]",
+                    box_idx,
+                    bw,
+                    bh,
+                    r,
+                    float(self.layout.circle_min_radius),
+                    float(self.layout.circle_max_radius),
+                )
+                continue
+            LOGGER.debug(
+                "YOLO crop box[%d] accepted: w=%.2f h=%.2f r=%.2f center=(%.2f, %.2f)",
+                box_idx,
+                bw,
+                bh,
+                r,
+                cx,
+                cy,
+            )
+            circles.append((cx, cy, r))
+        self.last_timing_ms["crop_box_to_circle_ms"] = (perf_counter() - t1) * 1000.0
+
+        if not circles:
+            LOGGER.debug("YOLO crop: no circles accepted from %d boxes", len(yolo_result.boxes))
+            return [], 0
+
+        t2 = perf_counter()
+        arr = self._sort_row_major(np.array(circles, dtype=np.float32), self.layout.rows, self.layout.cols)
+        self.last_timing_ms["crop_sort_ms"] = (perf_counter() - t2) * 1000.0
+        detected = len(arr)
+
+        patches: List[CropResult] = []
+        pad = int(self.layout.patch_padding)
+
+        t3 = perf_counter()
+        for idx, (cx, cy, r) in enumerate(arr, start=1):
+            cropped_roi, bbox = self._crop_by_circle_fast(image, float(cx), float(cy), float(r), pad)
+            if cropped_roi is None or bbox is None:
+                continue
+            patches.append(CropResult(index=idx, image=cropped_roi, bbox=bbox))
+        self.last_timing_ms["crop_mask_and_cut_ms"] = (perf_counter() - t3) * 1000.0
+        return patches, detected
+
+
+__all__ = ["CircleCropper", "YoloCircleCropper", "CropResult", "CircleDetectionError"]
