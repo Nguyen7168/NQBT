@@ -8,7 +8,7 @@ camera:
   pixel_format: "BayerRG8"
 
 window:
-  x: 0
+  x: 640
   y: 0
   width: 640
   height: 980
