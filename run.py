@@ -85,7 +85,13 @@ def main(argv: list[str]) -> int:
         return 1
 
     app = QtWidgets.QApplication(sys.argv)
-    window = MainWindow(config, plc, use_dummy_camera=args.use_dummy_camera, plc_status=plc_status)
+    window = MainWindow(
+        config,
+        plc,
+        use_dummy_camera=args.use_dummy_camera,
+        plc_status=plc_status,
+        config_path=args.config,
+    )
     window.show()
     return app.exec_()
 

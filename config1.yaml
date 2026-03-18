@@ -13,6 +13,12 @@ window:
   width: 640
   height: 980
 
+inference_service:
+  enabled: true
+  host: "127.0.0.1"
+  port: 8765
+  timeout_ms: 30000
+
 plc:
   protocol: "ASCII_TCP"
   ip: "192.168.1.1"

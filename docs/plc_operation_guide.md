@@ -207,9 +207,11 @@ plc:
 
 - App #1 dùng `config.yaml`.
 - App #2 dùng `config1.yaml`.
+- Nếu bật `inference_service.enabled: true`, khởi động service chung trước khi mở 2 app.
 - Khuyến nghị chạy bằng tham số:
 
 ```bash
+python run_inference_service.py --host 127.0.0.1 --port 8765
 python run.py --config config.yaml
 python run.py --config config1.yaml
 ```
@@ -224,3 +226,4 @@ Lưu ý bắt buộc khi chạy song song:
 - Trigger/handshake chi tiết: `docs/plc_trigger_flow.md`
 - Recipe/model flow: `docs/plc_model_recipe_flow.md`
 - API PLC + timing notes: `app/inspection/plc_note.md`
+- Shared inference service: `docs/inference_service_guide.md`

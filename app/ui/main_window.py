@@ -38,9 +38,11 @@ class MainWindow(QtWidgets.QMainWindow):
         parent: Optional[QtWidgets.QWidget] = None,
         use_dummy_camera: bool = False,
         plc_status: str = "Disconnected",
+        config_path: str = "config.yaml",
     ) -> None:
         super().__init__(parent)
         self.config = config
+        self.config_path = config_path
         self.plc = plc
         self._use_dummy_camera = use_dummy_camera
         # Store initial PLC status string for UI
@@ -398,7 +400,12 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _init_workers(self) -> None:
         self.inspection_thread = QtCore.QThread(self)
-        self.worker = InspectionWorker(self.config, self.plc, use_dummy_camera=self._use_dummy_camera)
+        self.worker = InspectionWorker(
+            self.config,
+            self.plc,
+            use_dummy_camera=self._use_dummy_camera,
+            config_path=self.config_path,
+        )
         self.worker.moveToThread(self.inspection_thread)
         self.inspection_thread.start()
 
