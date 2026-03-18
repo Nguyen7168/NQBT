@@ -248,6 +248,7 @@ class InspectionWorker(QtCore.QObject):
             f"plc_busy={timings.get('plc_busy', 0.0):.1f}ms",
             f"plc_run={timings.get('plc_run', 0.0):.1f}ms",
             f"plc_write_results={timings.get('plc_write_results', 0.0):.1f}ms",
+            f"plc_write_detected_count={timings.get('plc_write_detected_count', 0.0):.1f}ms",
             f"plc_error={timings.get('plc_error', 0.0):.1f}ms",
             f"plc_done={timings.get('plc_done', 0.0):.1f}ms",
             f"total={timings.get('cycle_total', 0.0):.1f}ms",
@@ -329,8 +330,19 @@ class InspectionWorker(QtCore.QObject):
             expected_circles=expected,
         )
 
+    def _write_detected_count(self, count: int) -> None:
+        addr = getattr(self.plc.config.addr, "detected_count_word", None)
+        if not addr:
+            return
+        self.plc.write_word(addr, max(0, int(count)))
+
     def _run_standard_cycle(self, image: np.ndarray, timings: Optional[MutableMapping[str, float]] = None) -> InspectionResult:
         result = self._build_result_from_image(image, timings=timings)
+        detected_count = result.detected_circles if result.detected_circles is not None else 0
+        if timings is not None:
+            self._timed_call(timings, "plc_write_detected_count", lambda: self._write_detected_count(detected_count))
+        else:
+            self._write_detected_count(detected_count)
         mismatch = result.detected_circles != result.expected_circles
         if mismatch:
             expected = result.expected_circles or self.config.layout.count
@@ -373,6 +385,10 @@ class InspectionWorker(QtCore.QObject):
                 LOGGER.exception("Inspection cycle failed: %s", exc)
                 try:
                     self.plc.write_results([False] * self.config.layout.count)
+                    try:
+                        self._write_detected_count(0)
+                    except Exception:
+                        LOGGER.warning("Failed to write detected_count_word=0 on run cycle failure", exc_info=True)
                     self.plc.set_error(True)
                     self.plc.set_done(True)
                 finally:
@@ -408,6 +424,10 @@ class InspectionWorker(QtCore.QObject):
                 LOGGER.exception("Sample cycle failed: %s", exc)
                 try:
                     self.plc.write_results([False] * self.config.layout.count)
+                    try:
+                        self._write_detected_count(0)
+                    except Exception:
+                        LOGGER.warning("Failed to write detected_count_word=0 on sample cycle failure", exc_info=True)
                     self.plc.set_error(True)
                     self.plc.set_done(True)
                 finally:

@@ -23,6 +23,7 @@ Tài liệu này là bản vận hành chuẩn giữa **PLC ↔ App** để trá
 | Mode request | `plc.addr.mode_request_word` | `DM1533` | PLC → App | Mode PLC yêu cầu: RUN=3, SAMPLE=2, MIRROR=1 |
 | Mode current | `plc.addr.mode_current_word` | `DM1525` | App → PLC | Mode app đang chạy: RUN=3, SAMPLE=2, MIRROR=1 |
 | Mirror result | `plc.addr.mirror_result_word` | `EM1332` | App → PLC | Kết quả mirror: OK=1, NG=0 |
+| Detected count | `plc.addr.detected_count_word` | `DM1536` | App → PLC | Số lượng bạc trục detect được trong cycle RUN/SAMPLE |
 
 ### Mapping mảng kết quả `result_bits_start_word`
 - App ghi kết quả theo dạng **pack 16 bit/word**.
@@ -117,12 +118,12 @@ Trong đó:
 
 ## 5) Error Handling Matrix
 
-| Tình huống | BUSY | DONE | ERROR | Mirror word |
-|---|---:|---:|---:|---:|
-| RUN/SAMPLE thành công | 1→0 | xung 1 rồi 0 | 0 | giữ nguyên |
-| RUN/SAMPLE lỗi cycle | 1→0 | xung 1 rồi 0 | 1 (sau đó clear khi finalize) | giữ nguyên |
-| MIRROR thành công | 1→0 | xung 1 rồi 0 | 0 | OK=1 / NG=0 theo ngưỡng |
-| MIRROR lỗi (không thấy vòng tròn, lỗi module...) | 1→0 | xung 1 rồi 0 | 0 hoặc theo logic app | ghi NG=0 |
+| Tình huống | BUSY | DONE | ERROR | Mirror word | Detected count word |
+|---|---:|---:|---:|---:|---:|
+| RUN/SAMPLE thành công | 1→0 | xung 1 rồi 0 | 0 | giữ nguyên | ghi số detect thực tế |
+| RUN/SAMPLE lỗi cycle | 1→0 | xung 1 rồi 0 | 1 (sau đó clear khi finalize) | giữ nguyên | ghi 0 |
+| MIRROR thành công | 1→0 | xung 1 rồi 0 | 0 | OK=1 / NG=0 theo ngưỡng | giữ nguyên |
+| MIRROR lỗi (không thấy vòng tròn, lỗi module...) | 1→0 | xung 1 rồi 0 | 0 hoặc theo logic app | ghi NG=0 | giữ nguyên |
 
 ---
 
@@ -133,6 +134,7 @@ Trong đó:
 - [ ] Tất cả địa chỉ bit/word map đúng như bảng I/O.
 - [ ] `mode_request_word` / `mode_current_word` map đúng RUN=3, SAMPLE=2, MIRROR=1.
 - [ ] `mirror_result_word` map đúng vùng PLC đọc.
+- [ ] `detected_count_word` map đúng vùng PLC đọc (cam1: DM1536, cam2: DM1636).
 - [ ] `sample_image_root` tồn tại và có thư mục theo mã hàng.
 
 ## 6.2 Kiểm tra timing/debounce
@@ -213,7 +215,7 @@ python run.py --config config1.yaml
 ```
 
 Lưu ý bắt buộc khi chạy song song:
-- Không để trùng các word/bit output điều khiển giữa 2 app (`busy/done/mode_current/result_bits_start_word/mirror_result_word/...`).
+- Không để trùng các word/bit output điều khiển giữa 2 app (`busy/done/mode_current/result_bits_start_word/mirror_result_word/detected_count_word/...`).
 - Nếu 2 app cùng PLC, nên xác nhận lại các bit ACK/ERROR có tách riêng hay không trước khi chạy production.
 
 ---
