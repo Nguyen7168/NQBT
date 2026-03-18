@@ -264,6 +264,12 @@ class InspectionWorker(QtCore.QObject):
             return
         self.plc.write_word(addr, max(0, int(count)))
 
+    def _write_detected_count(self, count: int) -> None:
+        addr = getattr(self.plc.config.addr, "detected_count_word", None)
+        if not addr:
+            return
+        self.plc.write_word(addr, max(0, int(count)))
+
     def _run_standard_cycle(self, image: np.ndarray, timings: Optional[MutableMapping[str, float]] = None) -> InspectionResult:
         result = self._run_inference_pipeline(image, timings=timings)
         detected_count = result.detected_circles if result.detected_circles is not None else 0
