@@ -32,6 +32,7 @@ plc:
     mode_request_word: "DM1633"
     mode_current_word: "DM1625"
     mirror_result_word: "EM1334"
+    detected_count_word: "DM1636"
   log_raw_request: false
   log_raw_response: false
   trigger_poll_interval_ms: 10

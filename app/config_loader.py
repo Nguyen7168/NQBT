@@ -38,6 +38,7 @@ class PlcAddressConfig:
     mode_request_word: Optional[str] = None
     mode_current_word: Optional[str] = None
     mirror_result_word: Optional[str] = None
+    detected_count_word: Optional[str] = None
 
 
 @dataclass
