@@ -38,9 +38,11 @@ class MainWindow(QtWidgets.QMainWindow):
         parent: Optional[QtWidgets.QWidget] = None,
         use_dummy_camera: bool = False,
         plc_status: str = "Disconnected",
+        config_path: str = "config.yaml",
     ) -> None:
         super().__init__(parent)
         self.config = config
+        self.config_path = config_path
         self.plc = plc
         self._use_dummy_camera = use_dummy_camera
         # Store initial PLC status string for UI
@@ -243,6 +245,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.tx_mode_current_label = QtWidgets.QLabel("-")
         self.tx_model_current_label = QtWidgets.QLabel("-")
         self.tx_mirror_result_label = QtWidgets.QLabel("-")
+        self.tx_detected_count_label = QtWidgets.QLabel("-")
         addr = self.config.plc.addr
         tx_form.addRow(self._format_addr_label("Busy", addr.busy), self.tx_busy_label)
         tx_form.addRow(self._format_addr_label("Done", addr.done), self.tx_done_label)
@@ -252,6 +255,7 @@ class MainWindow(QtWidgets.QMainWindow):
         tx_form.addRow(self._format_addr_label("Mode current word", addr.mode_current_word), self.tx_mode_current_label)
         tx_form.addRow(self._format_addr_label("Model current word", addr.model_current_word), self.tx_model_current_label)
         tx_form.addRow(self._format_addr_label("Mirror result word", addr.mirror_result_word), self.tx_mirror_result_label)
+        tx_form.addRow(self._format_addr_label("Detected count word", addr.detected_count_word), self.tx_detected_count_label)
         plc_content_layout.addWidget(tx_group)
 
         rx_group = QtWidgets.QGroupBox("RX (PLC → App)")
@@ -396,7 +400,12 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _init_workers(self) -> None:
         self.inspection_thread = QtCore.QThread(self)
-        self.worker = InspectionWorker(self.config, self.plc, use_dummy_camera=self._use_dummy_camera)
+        self.worker = InspectionWorker(
+            self.config,
+            self.plc,
+            use_dummy_camera=self._use_dummy_camera,
+            config_path=self.config_path,
+        )
         self.worker.moveToThread(self.inspection_thread)
         self.inspection_thread.start()
 
@@ -980,6 +989,7 @@ class MainWindow(QtWidgets.QMainWindow):
             mode_current_addr = getattr(self.plc.config.addr, "mode_current_word", None)
             model_current_addr = getattr(self.plc.config.addr, "model_current_word", None)
             mirror_result_addr = getattr(self.plc.config.addr, "mirror_result_word", None)
+            detected_count_addr = getattr(self.plc.config.addr, "detected_count_word", None)
 
             self.rx_trigger_label.setText("ON" if trigger else "OFF")
             self.rx_sample_trigger_label.setText(self._read_plc_bit_text(sample_trigger_addr))
@@ -995,6 +1005,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.tx_mode_current_label.setText(self._read_plc_word_text(mode_current_addr))
             self.tx_model_current_label.setText(self._read_plc_word_text(model_current_addr))
             self.tx_mirror_result_label.setText(self._read_plc_word_text(mirror_result_addr))
+            self.tx_detected_count_label.setText(self._read_plc_word_text(detected_count_addr))
             self.status_plc.setText(f"PLC: {self.plc.connection_state()}")
             results = self.plc.state.last_results
             total = self.config.layout.count

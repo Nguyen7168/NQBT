@@ -38,6 +38,7 @@ class PlcAddressConfig:
     mode_request_word: Optional[str] = None
     mode_current_word: Optional[str] = None
     mirror_result_word: Optional[str] = None
+    detected_count_word: Optional[str] = None
 
 
 @dataclass
@@ -200,12 +201,21 @@ class WindowConfig:
 
 
 @dataclass
+class InferenceServiceConfig:
+    enabled: bool = False
+    host: str = "127.0.0.1"
+    port: int = 8765
+    timeout_ms: int = 30000
+
+
+@dataclass
 class AppConfig:
     camera: CameraConfig
     plc: PlcConfig
     models: ModelConfig
     io: IOConfig
     layout: LayoutConfig
+    inference_service: InferenceServiceConfig = field(default_factory=InferenceServiceConfig)
     app_title: Optional[str] = None
     window: Optional[WindowConfig] = None
     sample_image_root: str = "samples"
@@ -345,6 +355,12 @@ def load_config(path: str | Path) -> AppConfig:
     layout = LayoutConfig(**_require(raw, "layout"))
     window_raw = raw.get("window")
     window_cfg = WindowConfig(**window_raw) if isinstance(window_raw, dict) else None
+    inference_service_raw = raw.get("inference_service", {})
+    inference_service_cfg = (
+        InferenceServiceConfig(**inference_service_raw)
+        if isinstance(inference_service_raw, dict)
+        else InferenceServiceConfig()
+    )
 
     return AppConfig(
         camera=camera,
@@ -352,6 +368,7 @@ def load_config(path: str | Path) -> AppConfig:
         models=models,
         io=io_cfg,
         layout=layout,
+        inference_service=inference_service_cfg,
         app_title=(str(raw.get("app_title")).strip() if raw.get("app_title") is not None else None),
         window=window_cfg,
         sample_image_root=str(raw.get("sample_image_root", "samples")),

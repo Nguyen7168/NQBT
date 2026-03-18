@@ -16,10 +16,11 @@ import numpy as np
 
 from app.config_loader import AppConfig
 from app.inspection.camera import BaslerCamera, DummyCamera
-from app.inspection.cropping import CropResult, CircleCropper, CircleDetectionError, YoloCircleCropper
+from app.inspection.cropping import CropResult, CircleDetectionError
+from app.inspection.inference_pipeline import InferencePipeline, InferenceResultPayload
+from app.inspection.inference_service import RemoteInferenceClient
 from app.inspection.plc_client import PlcController
-from app.models.anomaly import AnomalyDetector
-from app.models.yolo import YoloDetector, YoloResult
+from app.models.yolo import YoloResult
 from PyQt5 import QtCore
 from app.utils import ensure_dir, save_image
 try:
@@ -96,84 +97,25 @@ class InspectionWorker(QtCore.QObject):
         plc: PlcController,
         parent: Optional[QtCore.QObject] = None,
         use_dummy_camera: bool = False,
+        config_path: str = "config.yaml",
     ) -> None:
         super().__init__(parent)
         self.config = config
+        self.config_path = config_path
         self.plc = plc
-        self.cropper = CircleCropper(config.layout)
         self.camera = DummyCamera(config.camera) if use_dummy_camera else BaslerCamera(config.camera)
-        self.anomaly: Optional[AnomalyDetector]
-        self._anomaly_error: Optional[str] = None
-        try:
-            self.anomaly = AnomalyDetector(config.models)
-        except Exception as exc:
-            LOGGER.warning("Failed to initialise anomaly detector: %s", exc)
-            self.anomaly = None
-            self._anomaly_error = str(exc)
-        self.yolo = None
-        if config.models.yolo.enabled and config.models.yolo.path:
-            try:
-                self.yolo = YoloDetector(
-                    config.models.yolo.path,
-                    config.models.yolo.conf_thres,
-                    config.models.yolo.iou_thres,
-                )
-            except Exception as exc:
-                LOGGER.warning("Failed to initialise YOLO detector: %s", exc)
-        self.crop_yolo: Optional[YoloDetector] = None
-        self._configure_cropper(crop_yolo_path=getattr(config.models.yolo, "crop_path", None))
-        self._active_glass_threshold = self._resolve_active_glass_threshold()
+        self.pipeline = InferencePipeline(config)
+        self.remote_client: Optional[RemoteInferenceClient] = None
+        if bool(getattr(config.inference_service, "enabled", False)):
+            self.remote_client = RemoteInferenceClient(
+                config.inference_service.host,
+                config.inference_service.port,
+                timeout_ms=config.inference_service.timeout_ms,
+            )
         self._lock = threading.Lock()
         self._camera_ready = False
         self._camera_fail_streak = 0
         self._camera_recover_stable_success = 0
-
-    def _resolve_active_glass_threshold(self) -> float:
-        active_code = getattr(self.config.models, "active_recipe_code", None)
-        recipes = list(getattr(self.config.models, "glass_recipes", []))
-        if active_code is not None:
-            for recipe in recipes:
-                if int(getattr(recipe, "code", -1)) == int(active_code):
-                    return float(recipe.glass_threshold)
-        if recipes:
-            return float(recipes[0].glass_threshold)
-        return float(self.config.models.glass.glass_threshold)
-
-    def _init_crop_yolo_detector(self, model_path: Optional[str] = None) -> Optional[YoloDetector]:
-        yolo_cfg = self.config.models.yolo
-        if not bool(getattr(yolo_cfg, "crop_enabled", False)):
-            return None
-        path = (model_path or yolo_cfg.crop_path or "").strip()
-        if not path:
-            return None
-        return YoloDetector(
-            path,
-            float(getattr(yolo_cfg, "crop_conf_thres", 0.5)),
-            float(getattr(yolo_cfg, "crop_iou_thres", 0.7)),
-            imgsz=int(getattr(yolo_cfg, "crop_imgsz", 960)),
-            device=str(getattr(yolo_cfg, "crop_device", "cuda:0")),
-            classes=getattr(yolo_cfg, "crop_classes", None),
-        )
-
-    def _configure_cropper(self, crop_yolo_path: Optional[str] = None) -> None:
-        method = (getattr(self.config.layout, "crop_method", "circle") or "circle").strip().lower()
-        if method != "yolo_circle":
-            self.crop_yolo = None
-            self.cropper = CircleCropper(self.config.layout)
-            return
-        try:
-            self.crop_yolo = self._init_crop_yolo_detector(model_path=crop_yolo_path)
-            if self.crop_yolo is None:
-                raise RuntimeError("YOLO crop model is not configured")
-            self.cropper = YoloCircleCropper(self.config.layout, self.crop_yolo)
-            LOGGER.info("Using YOLO circle cropper")
-        except Exception as exc:
-            if bool(getattr(self.config.layout, "yolo_crop_fallback_to_circle", True)):
-                LOGGER.warning("YOLO crop initialisation failed (%s); fallback to circle cropper", exc)
-                self.crop_yolo = None
-                self.cropper = CircleCropper(self.config.layout)
-            else:
-                raise
 
     @QtCore.pyqtSlot()
     def connect_camera(self) -> None:
@@ -248,6 +190,7 @@ class InspectionWorker(QtCore.QObject):
             f"plc_busy={timings.get('plc_busy', 0.0):.1f}ms",
             f"plc_run={timings.get('plc_run', 0.0):.1f}ms",
             f"plc_write_results={timings.get('plc_write_results', 0.0):.1f}ms",
+            f"plc_write_detected_count={timings.get('plc_write_detected_count', 0.0):.1f}ms",
             f"plc_error={timings.get('plc_error', 0.0):.1f}ms",
             f"plc_done={timings.get('plc_done', 0.0):.1f}ms",
             f"total={timings.get('cycle_total', 0.0):.1f}ms",
@@ -263,74 +206,71 @@ class InspectionWorker(QtCore.QObject):
             )
         LOGGER.info("Timing[%s] %s", cycle_type, " | ".join(fields))
 
-    def _build_result_from_image(
+    @staticmethod
+    def _payload_to_result(payload: InferenceResultPayload | Dict[str, object]) -> InspectionResult:
+        data = payload.__dict__ if isinstance(payload, InferenceResultPayload) else payload
+        return InspectionResult(
+            raw_image=data["raw_image"],  # type: ignore[arg-type]
+            overlay_image=data["overlay_image"],  # type: ignore[arg-type]
+            patches=data["patches"],  # type: ignore[arg-type]
+            anomaly_scores=data["anomaly_scores"],  # type: ignore[arg-type]
+            statuses=data["statuses"],  # type: ignore[arg-type]
+            ng_total=int(data["ng_total"]),
+            anomaly_inference_ms=float(data["anomaly_inference_ms"]),
+            cycle_elapsed_ms=0.0,
+            yolo_result=data.get("yolo_result"),  # type: ignore[arg-type]
+            timestamp=float(data["timestamp"]),
+            model_path=str(data["model_path"]),
+            threshold=float(data["threshold"]),
+            anomaly_maps=data.get("anomaly_maps"),  # type: ignore[arg-type]
+            detected_circles=(None if data.get("detected_circles") is None else int(data["detected_circles"])),
+            expected_circles=(None if data.get("expected_circles") is None else int(data["expected_circles"])),
+        )
+
+    @staticmethod
+    def _merge_remote_timings(timings: MutableMapping[str, float], remote_data: Dict[str, object]) -> None:
+        remote_timings = remote_data.get("_remote_timings")
+        if not isinstance(remote_timings, dict):
+            return
+        for key, value in remote_timings.items():
+            try:
+                timings[str(key)] = float(value)
+            except Exception:
+                continue
+
+    def _run_inference_pipeline(
         self,
         image: np.ndarray,
         timings: Optional[MutableMapping[str, float]] = None,
     ) -> InspectionResult:
-        if timings is not None:
-            patches, detected = self._timed_call(timings, "crop", lambda: self.cropper.crop_with_count(image))
-            if isinstance(self.cropper, YoloCircleCropper):
-                for key in (
-                    "crop_yolo_detect_ms",
-                    "crop_box_to_circle_ms",
-                    "crop_mask_and_cut_ms",
-                    "crop_sort_ms",
-                ):
-                    timings[key] = float(self.cropper.last_timing_ms.get(key, 0.0))
-        else:
-            patches, detected = self.cropper.crop_with_count(image)
-        expected = self.config.layout.count
-        if self.anomaly is None:
-            raise RuntimeError(
-                f"Anomaly model not available: {self._anomaly_error or 'unknown error'}"
-            )
-        anomaly = None
-        if patches:
+        if self.remote_client is not None:
             if timings is not None:
-                anomaly = self._timed_call(timings, "anomaly", lambda: self.anomaly.infer([p.image for p in patches]))
+                remote_result = self._timed_call(
+                    timings,
+                    "remote_inference_total",
+                    lambda: self.remote_client.infer(image, self.config_path, self.config),
+                )
+                assert isinstance(remote_result, dict)
+                self._merge_remote_timings(timings, remote_result)
             else:
-                anomaly = self.anomaly.infer([p.image for p in patches])
-        algo = (self.config.models.algo or "INP").upper()
-        if algo == "GLASS":
-            threshold = float(self._active_glass_threshold)
-            model_path = self.config.models.glass.path
-        else:
-            threshold = float(self.config.models.inp.inp_threshold)
-            model_path = self.config.models.inp.path
-        if timings is not None:
-            timings["anomaly_model"] = float(anomaly.inference_ms) if anomaly is not None else 0.0
-        statuses = (["OK" if score <= threshold else "NG" for score in anomaly.scores] if anomaly is not None else [])
-        ng_total = sum(1 for status in statuses if status == "NG")
+                remote_result = self.remote_client.infer(image, self.config_path, self.config)
+            return self._payload_to_result(remote_result)
+        payload = self.pipeline.run_on_image(image, timings=timings)
+        return self._payload_to_result(payload)
 
-        yolo_result = None
-        if self.yolo is not None:
-            try:
-                yolo_result = self.yolo.detect(image)
-            except Exception as exc:
-                LOGGER.error("YOLO inference failed: %s", exc)
-
-        overlay = self._build_overlay(image, patches, statuses, yolo_result)
-        return InspectionResult(
-            raw_image=image,
-            overlay_image=overlay,
-            patches=patches,
-            anomaly_scores=anomaly.scores if anomaly is not None else [],
-            statuses=statuses,
-            ng_total=ng_total,
-            anomaly_inference_ms=anomaly.inference_ms if anomaly is not None else 0.0,
-            cycle_elapsed_ms=0.0,
-            yolo_result=yolo_result,
-            timestamp=time.time(),
-            model_path=model_path,
-            threshold=threshold,
-            anomaly_maps=anomaly.maps if anomaly is not None else None,
-            detected_circles=detected,
-            expected_circles=expected,
-        )
+    def _write_detected_count(self, count: int) -> None:
+        addr = getattr(self.plc.config.addr, "detected_count_word", None)
+        if not addr:
+            return
+        self.plc.write_word(addr, max(0, int(count)))
 
     def _run_standard_cycle(self, image: np.ndarray, timings: Optional[MutableMapping[str, float]] = None) -> InspectionResult:
-        result = self._build_result_from_image(image, timings=timings)
+        result = self._run_inference_pipeline(image, timings=timings)
+        detected_count = result.detected_circles if result.detected_circles is not None else 0
+        if timings is not None:
+            self._timed_call(timings, "plc_write_detected_count", lambda: self._write_detected_count(detected_count))
+        else:
+            self._write_detected_count(detected_count)
         mismatch = result.detected_circles != result.expected_circles
         if mismatch:
             expected = result.expected_circles or self.config.layout.count
@@ -373,6 +313,10 @@ class InspectionWorker(QtCore.QObject):
                 LOGGER.exception("Inspection cycle failed: %s", exc)
                 try:
                     self.plc.write_results([False] * self.config.layout.count)
+                    try:
+                        self._write_detected_count(0)
+                    except Exception:
+                        LOGGER.warning("Failed to write detected_count_word=0 on run cycle failure", exc_info=True)
                     self.plc.set_error(True)
                     self.plc.set_done(True)
                 finally:
@@ -408,6 +352,10 @@ class InspectionWorker(QtCore.QObject):
                 LOGGER.exception("Sample cycle failed: %s", exc)
                 try:
                     self.plc.write_results([False] * self.config.layout.count)
+                    try:
+                        self._write_detected_count(0)
+                    except Exception:
+                        LOGGER.warning("Failed to write detected_count_word=0 on sample cycle failure", exc_info=True)
                     self.plc.set_error(True)
                     self.plc.set_done(True)
                 finally:
@@ -524,7 +472,7 @@ class InspectionWorker(QtCore.QObject):
     def reload_anomaly_model(self, model_path: str) -> None:
         self.reload_anomaly_model_with_threshold(
             model_path,
-            self._active_glass_threshold if (self.config.models.algo or "INP").upper() == "GLASS" else self.config.models.inp.inp_threshold,
+            self.pipeline.active_glass_threshold if (self.config.models.algo or "INP").upper() == "GLASS" else self.config.models.inp.inp_threshold,
         )
 
     @QtCore.pyqtSlot(str, float)
@@ -535,28 +483,9 @@ class InspectionWorker(QtCore.QObject):
     def reload_recipe_models(self, model_path: str, threshold: float, crop_yolo_path: str = "") -> None:
         with self._lock:
             try:
-                # Update the current algorithm's model path
-                if (self.config.models.algo or "INP").upper() == "GLASS":
-                    self.config.models.glass.path = model_path
-                    self._active_glass_threshold = float(threshold)
-                    effective_threshold = float(self._active_glass_threshold)
-                else:
-                    self.config.models.inp.path = model_path
-                    self.config.models.inp.inp_threshold = float(threshold)
-                    effective_threshold = float(self.config.models.inp.inp_threshold)
-                # Recreate detector with updated models config
-                self.anomaly = AnomalyDetector(self.config.models)
-                resolved_crop_path = (crop_yolo_path or "").strip() or getattr(self.config.models.yolo, "crop_path", None)
-                if resolved_crop_path:
-                    self.config.models.yolo.crop_path = resolved_crop_path
-                if (self.config.models.algo or "INP").upper() == "GLASS":
-                    self._configure_cropper(crop_yolo_path=resolved_crop_path)
-                self._anomaly_error = None
-                LOGGER.info("Reloaded anomaly model from %s", model_path)
+                _, effective_threshold = self.pipeline.reload_recipe_models(model_path, threshold, crop_yolo_path)
                 self.model_reloaded.emit(model_path, effective_threshold)
             except Exception as exc:
-                self.anomaly = None
-                self._anomaly_error = str(exc)
                 LOGGER.error("Failed to reload anomaly model: %s", exc)
                 self.model_reload_failed.emit(str(exc))
 
@@ -573,122 +502,11 @@ class InspectionWorker(QtCore.QObject):
                 assert isinstance(image_obj, np.ndarray), "Expected numpy image"
                 image = image_obj
                 self.cycle_started.emit()
-
-                patches, detected = self.cropper.crop_with_count(image)
-                expected = self.config.layout.count
-                if self.anomaly is None:
-                    raise RuntimeError(
-                        f"Anomaly model not available: {self._anomaly_error or 'unknown error'}"
-                    )
-                anomaly = None
-                if patches:
-                    anomaly = self.anomaly.infer([p.image for p in patches])
-                algo = (self.config.models.algo or "INP").upper()
-                if algo == "GLASS":
-                    threshold = float(self._active_glass_threshold)
-                    model_path = self.config.models.glass.path
-                else:
-                    threshold = float(self.config.models.inp.inp_threshold)
-                    model_path = self.config.models.inp.path
-                statuses = (
-                    ["OK" if score <= threshold else "NG" for score in anomaly.scores]
-                    if anomaly is not None
-                    else []
-                )
-                ng_total = sum(1 for status in statuses if status == "NG")
-
-                yolo_result = None
-                if self.yolo is not None:
-                    try:
-                        yolo_result = self.yolo.detect(image)
-                    except Exception as exc:
-                        LOGGER.error("YOLO inference failed: %s", exc)
-
-                overlay = self._build_overlay(image, patches, statuses, yolo_result)
-                result = InspectionResult(
-                    raw_image=image,
-                    overlay_image=overlay,
-                    patches=patches,
-                    anomaly_scores=anomaly.scores if anomaly is not None else [],
-                    statuses=statuses,
-                    ng_total=ng_total,
-                    anomaly_inference_ms=anomaly.inference_ms if anomaly is not None else 0.0,
-                    cycle_elapsed_ms=0.0,
-                    yolo_result=yolo_result,
-                    timestamp=time.time(),
-                    model_path=model_path,
-                    threshold=threshold,
-                    anomaly_maps=anomaly.maps if anomaly is not None else None,
-                    detected_circles=detected,
-                    expected_circles=expected,
-                )
-
+                result = self._run_inference_pipeline(image)
                 self.cycle_completed.emit(result)
             except Exception as exc:
                 LOGGER.exception("Manual image inference failed: %s", exc)
                 self.cycle_failed.emit(str(exc))
-
-    def _build_overlay(
-        self,
-        image: np.ndarray,
-        patches: Sequence[CropResult],
-        statuses: Sequence[str],
-        yolo_result: Optional[YoloResult],
-    ) -> np.ndarray:
-        overlay = image.copy()
-        for patch, status in zip(patches, statuses):
-            x1, y1, x2, y2 = patch.bbox
-            color = (0, 255, 0) if status == "OK" else (0, 0, 255)
-            overlay = cv2.rectangle(overlay, (x1, y1), (x2, y2), color, 3)
-            label = str(patch.index)
-            box_width = max(x2 - x1, 1)
-            text_mode = str(getattr(self.config.layout, "overlay_index_text_mode", "auto") or "auto").strip().lower()
-            if text_mode == "fixed":
-                font_scale = max(0.1, float(getattr(self.config.layout, "overlay_index_font_scale", 1.0)))
-                thickness = max(1, int(getattr(self.config.layout, "overlay_index_thickness", 2)))
-            else:
-                min_scale = max(0.1, float(getattr(self.config.layout, "overlay_index_min_scale", 0.5)))
-                max_scale = max(min_scale, float(getattr(self.config.layout, "overlay_index_max_scale", 1.2)))
-                divisor = max(1.0, float(getattr(self.config.layout, "overlay_index_scale_divisor", 180.0)))
-                font_scale = max(min_scale, min(max_scale, box_width / divisor))
-                thickness = max(1, int(round(font_scale * 2)))
-            outline_extra = max(1, int(getattr(self.config.layout, "overlay_index_outline_extra", 2)))
-            text_origin = (x1 + 4, y1 + int(20 * font_scale))
-            cv2.putText(
-                overlay,
-                label,
-                text_origin,
-                cv2.FONT_HERSHEY_SIMPLEX,
-                font_scale,
-                (0, 0, 0),
-                thickness + outline_extra,
-                cv2.LINE_AA,
-            )
-            cv2.putText(
-                overlay,
-                label,
-                text_origin,
-                cv2.FONT_HERSHEY_SIMPLEX,
-                font_scale,
-                (255, 255, 255),
-                thickness,
-                cv2.LINE_AA,
-            )
-        if yolo_result:
-            for box, score, cls in zip(yolo_result.boxes, yolo_result.scores, yolo_result.class_ids):
-                x1, y1, x2, y2 = map(int, box)
-                cv2.rectangle(overlay, (x1, y1), (x2, y2), (255, 215, 0), 2)
-                cv2.putText(
-                    overlay,
-                    f"{cls}:{score:.2f}",
-                    (x1, max(y1 - 10, 0)),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.5,
-                    (255, 215, 0),
-                    1,
-                    cv2.LINE_AA,
-                )
-        return overlay
 
 
 class SaveWorker(QtCore.QObject):

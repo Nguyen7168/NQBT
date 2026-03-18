@@ -13,6 +13,12 @@ window:
   width: 640
   height: 980
 
+inference_service:
+  enabled: true
+  host: "127.0.0.1"
+  port: 8765
+  timeout_ms: 30000
+
 plc:
   protocol: "ASCII_TCP"
   ip: "192.168.1.1"
@@ -32,6 +38,7 @@ plc:
     mode_request_word: "DM1633"
     mode_current_word: "DM1625"
     mirror_result_word: "EM1334"
+    detected_count_word: "DM1636"
   log_raw_request: false
   log_raw_response: false
   trigger_poll_interval_ms: 10
