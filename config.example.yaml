@@ -25,6 +25,9 @@ inference_service:
   port: 8765
   timeout_ms: 30000
 
+measurement:
+  mm_per_pixel: 0.01
+
 plc:
   protocol: "ASCII_TCP"
   ip: "192.168.0.10"
@@ -79,6 +82,8 @@ models:
     provider: "cuda"
     threshold: 0.15
     input_size: 256
+    diameter_min_mm: 4.8
+    diameter_max_mm: 5.4
   yolo:
     enabled: false
     path: "models/yolo.engine"
@@ -90,10 +95,14 @@ models:
       path: "models/ITEM_A.pth"
       name: "ITEM_A"
       glass_threshold: 0.5
+      diameter_min_mm: 4.8
+      diameter_max_mm: 5.4
     - code: 2
       path: "models/ITEM_B.pth"
       name: "ITEM_B"
       glass_threshold: 0.5
+      diameter_min_mm: 4.8
+      diameter_max_mm: 5.4
 
 io:
   save_images: true

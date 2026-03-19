@@ -19,6 +19,9 @@ inference_service:
   port: 8765
   timeout_ms: 30000
 
+measurement:
+  mm_per_pixel: 0.01
+
 plc:
   protocol: "ASCII_TCP"
   ip: "192.168.1.1"
@@ -69,6 +72,8 @@ models:
     inp_blur_sigma: 4.0
     inp_max_ratio: 0.0
     inp_bin_thresh: 0.2
+    diameter_min_mm: 4.8
+    diameter_max_mm: 5.4
   glass:
     path: app/models/gls_epoch_124_loss_0_1330_271img.pth
     provider: "cuda"
@@ -79,6 +84,8 @@ models:
     glass_blur_sigma: 4.0
     glass_norm_eps: 1.0e-8
     glass_bin_thresh: 0.8
+    diameter_min_mm: 4.8
+    diameter_max_mm: 5.4
   yolo:
     enabled: false
     path: "models/yolo.engine"
@@ -98,11 +105,15 @@ models:
       name: "23-233HA-E"
       glass_threshold: 0.98
       crop_yolo_path: "app/models/crop_yolo/23-233HA-E/best.pt"
+      diameter_min_mm: 4.8
+      diameter_max_mm: 5.4
     - code: 2
       path: "app/models/gls_epoch_124_loss_0_1330_271img.pth"
       name: "ITEM_2"
       glass_threshold: 0.5
       crop_yolo_path: "app/models/crop_yolo/ITEM_2/best.pt"
+      diameter_min_mm: 4.8
+      diameter_max_mm: 5.4
 
 io:
   save_images: false

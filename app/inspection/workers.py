@@ -43,6 +43,7 @@ class InspectionResult:
     overlay_image: np.ndarray
     patches: List[CropResult]
     anomaly_scores: List[float]
+    diameters_mm: List[Optional[float]]
     statuses: List[str]
     ng_total: int
     anomaly_inference_ms: float
@@ -51,6 +52,8 @@ class InspectionResult:
     timestamp: float
     model_path: str
     threshold: float
+    diameter_min_mm: float
+    diameter_max_mm: float
     anomaly_maps: Optional[List[np.ndarray]] = None  # Optional per-patch normalized maps
     detected_circles: Optional[int] = None
     expected_circles: Optional[int] = None
@@ -63,12 +66,19 @@ class InspectionResult:
             "threshold": self.threshold,
             "count": len(self.patches),
             "per_part": [
-                {"idx": patch.index, "score": float(score), "status": status}
-                for patch, score, status in zip(self.patches, self.anomaly_scores, self.statuses)
+                {
+                    "idx": patch.index,
+                    "score": float(score),
+                    "diameter_mm": (None if diameter is None else float(diameter)),
+                    "status": status,
+                }
+                for patch, score, diameter, status in zip(self.patches, self.anomaly_scores, self.diameters_mm, self.statuses)
             ],
             "ng_total": self.ng_total,
             "inference_ms": self.anomaly_inference_ms,
             "cycle_elapsed_ms": self.cycle_elapsed_ms,
+            "diameter_threshold_min_mm": float(self.diameter_min_mm),
+            "diameter_threshold_max_mm": float(self.diameter_max_mm),
             "yolo": None
             if self.yolo_result is None
             else {
@@ -213,6 +223,7 @@ class InspectionWorker(QtCore.QObject):
             overlay_image=data["overlay_image"],  # type: ignore[arg-type]
             patches=data["patches"],  # type: ignore[arg-type]
             anomaly_scores=data["anomaly_scores"],  # type: ignore[arg-type]
+            diameters_mm=data.get("diameters_mm", []),  # type: ignore[arg-type]
             statuses=data["statuses"],  # type: ignore[arg-type]
             ng_total=int(data["ng_total"]),
             anomaly_inference_ms=float(data["anomaly_inference_ms"]),
@@ -221,6 +232,8 @@ class InspectionWorker(QtCore.QObject):
             timestamp=float(data["timestamp"]),
             model_path=str(data["model_path"]),
             threshold=float(data["threshold"]),
+            diameter_min_mm=float(data.get("diameter_min_mm", 0.0)),
+            diameter_max_mm=float(data.get("diameter_max_mm", 99999.0)),
             anomaly_maps=data.get("anomaly_maps"),  # type: ignore[arg-type]
             detected_circles=(None if data.get("detected_circles") is None else int(data["detected_circles"])),
             expected_circles=(None if data.get("expected_circles") is None else int(data["expected_circles"])),

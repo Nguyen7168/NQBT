@@ -189,8 +189,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.image_label.setStyleSheet("background-color: #1e1e1e; border: 1px solid #555;")
         inspection_content_layout.addWidget(self.image_label, stretch=7)
 
-        self.result_table = QtWidgets.QTableWidget(0, 3)
-        self.result_table.setHorizontalHeaderLabels(["Index", "Score", "Status"])
+        self.result_table = QtWidgets.QTableWidget(0, 4)
+        self.result_table.setHorizontalHeaderLabels(["Index", "Score", "Diameter (mm)", "Status"])
         self.result_table.horizontalHeader().setSectionResizeMode(QtWidgets.QHeaderView.Stretch)
         self.result_table.verticalHeader().setVisible(False)
         self.result_table.verticalHeader().setSectionResizeMode(QtWidgets.QHeaderView.Fixed)
@@ -211,7 +211,10 @@ class MainWindow(QtWidgets.QMainWindow):
         table_scroll.setWidget(self.result_table)
         inspection_content_layout.addWidget(table_scroll, stretch=0)
 
-        self.applied_threshold_label = QtWidgets.QLabel(f"Applied threshold: {self._current_threshold():.3f}")
+        diameter_min_mm, diameter_max_mm = self._current_diameter_thresholds()
+        self.applied_threshold_label = QtWidgets.QLabel(
+            f"Applied thresholds: score<={self._current_threshold():.3f} | diameter=[{diameter_min_mm:.3f}, {diameter_max_mm:.3f}] mm"
+        )
         self.applied_threshold_label.setAlignment(QtCore.Qt.AlignRight)
         inspection_content_layout.addWidget(self.applied_threshold_label, stretch=0)
 
@@ -629,11 +632,14 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.result_table.setRowCount(len(result.patches))
         self._set_table_row_heights(self.result_table)
-        for row, (patch, score, status) in enumerate(zip(result.patches, result.anomaly_scores, result.statuses)):
+        for row, (patch, score, diameter_mm, status) in enumerate(zip(result.patches, result.anomaly_scores, result.diameters_mm, result.statuses)):
             self.result_table.setItem(row, 0, QtWidgets.QTableWidgetItem(str(patch.index)))
             self.result_table.setItem(row, 1, QtWidgets.QTableWidgetItem(f"{score:.3f}"))
-            self.result_table.setItem(row, 2, QtWidgets.QTableWidgetItem(status))
-        self.applied_threshold_label.setText(f"Applied threshold: {result.threshold:.3f}")
+            self.result_table.setItem(row, 2, QtWidgets.QTableWidgetItem("-" if diameter_mm is None else f"{diameter_mm:.3f}"))
+            self.result_table.setItem(row, 3, QtWidgets.QTableWidgetItem(status))
+        self.applied_threshold_label.setText(
+            f"Applied thresholds: score<={result.threshold:.3f} | diameter=[{result.diameter_min_mm:.3f}, {result.diameter_max_mm:.3f}] mm"
+        )
         ok_total = sum(1 for status in result.statuses if status == "OK")
         self.ok_label.setText(str(ok_total))
         self.ng_label.setText(str(result.ng_total))
@@ -681,7 +687,8 @@ class MainWindow(QtWidgets.QMainWindow):
             self._set_table_row_heights(self.result_table)
             self.result_table.setItem(0, 0, QtWidgets.QTableWidgetItem("MIRROR"))
             self.result_table.setItem(0, 1, QtWidgets.QTableWidgetItem("-"))
-            self.result_table.setItem(0, 2, QtWidgets.QTableWidgetItem("NG"))
+            self.result_table.setItem(0, 2, QtWidgets.QTableWidgetItem("-"))
+            self.result_table.setItem(0, 3, QtWidgets.QTableWidgetItem("NG"))
             self.ok_label.setText("0")
             self.ng_label.setText("1")
             self._set_overall_status("NG")
@@ -694,7 +701,8 @@ class MainWindow(QtWidgets.QMainWindow):
             self._set_table_row_heights(self.result_table)
             self.result_table.setItem(0, 0, QtWidgets.QTableWidgetItem("MIRROR"))
             self.result_table.setItem(0, 1, QtWidgets.QTableWidgetItem("-"))
-            self.result_table.setItem(0, 2, QtWidgets.QTableWidgetItem("NG"))
+            self.result_table.setItem(0, 2, QtWidgets.QTableWidgetItem("-"))
+            self.result_table.setItem(0, 3, QtWidgets.QTableWidgetItem("NG"))
             self.ok_label.setText("0")
             self.ng_label.setText("1")
             self._set_overall_status("NG")
@@ -706,7 +714,8 @@ class MainWindow(QtWidgets.QMainWindow):
             self._set_table_row_heights(self.result_table)
             self.result_table.setItem(0, 0, QtWidgets.QTableWidgetItem("MIRROR"))
             self.result_table.setItem(0, 1, QtWidgets.QTableWidgetItem("-"))
-            self.result_table.setItem(0, 2, QtWidgets.QTableWidgetItem("NG"))
+            self.result_table.setItem(0, 2, QtWidgets.QTableWidgetItem("-"))
+            self.result_table.setItem(0, 3, QtWidgets.QTableWidgetItem("NG"))
             self.ok_label.setText("0")
             self.ng_label.setText("1")
             self._set_overall_status("NG")
@@ -747,13 +756,14 @@ class MainWindow(QtWidgets.QMainWindow):
         self.result_table.setRowCount(1)
         self._set_table_row_heights(self.result_table)
         self.result_table.setItem(0, 0, QtWidgets.QTableWidgetItem("MIRROR"))
-        self.result_table.setItem(0, 1, QtWidgets.QTableWidgetItem(f"{diameter:.3f}"))
-        self.result_table.setItem(0, 2, QtWidgets.QTableWidgetItem("OK" if is_ok else "NG"))
+        self.result_table.setItem(0, 1, QtWidgets.QTableWidgetItem("-"))
+        self.result_table.setItem(0, 2, QtWidgets.QTableWidgetItem(f"{diameter:.3f}"))
+        self.result_table.setItem(0, 3, QtWidgets.QTableWidgetItem("OK" if is_ok else "NG"))
         self.ok_label.setText("1" if is_ok else "0")
         self.ng_label.setText("0" if is_ok else "1")
         self._set_overall_status("OK" if is_ok else "NG")
         self.status_camera.setText("Camera: Ready")
-        self.applied_threshold_label.setText("Applied threshold: -")
+        self.applied_threshold_label.setText("Applied thresholds: -")
         self.statusBar().showMessage(
             f"Mirror test {'OK' if is_ok else 'NG'} | diameter={diameter:.2f}px",
             4000,
@@ -1140,7 +1150,10 @@ class MainWindow(QtWidgets.QMainWindow):
                 recipe_name = recipe.name
         self.model_label.setText(recipe_name)
         self.model_label.setStyleSheet("")
-        self.applied_threshold_label.setText(f"Applied threshold: {threshold:.3f}")
+        diameter_min_mm, diameter_max_mm = self._current_diameter_thresholds()
+        self.applied_threshold_label.setText(
+            f"Applied thresholds: score<={threshold:.3f} | diameter=[{diameter_min_mm:.3f}, {diameter_max_mm:.3f}] mm"
+        )
         self.statusBar().showMessage(
             f"Model switched: {recipe_name} (th={threshold:.3f})",
             3000,
@@ -1247,6 +1260,25 @@ class MainWindow(QtWidgets.QMainWindow):
                 return float(recipe.glass_threshold)
         # Safety fallback for transitional configs.
         return float(self.config.models.glass.glass_threshold)
+
+    def _current_diameter_thresholds(self) -> tuple[float, float]:
+        algo = (self.config.models.algo or "INP").upper()
+        if algo != "GLASS":
+            return (
+                float(getattr(self.config.models.inp, "diameter_min_mm", 0.0)),
+                float(getattr(self.config.models.inp, "diameter_max_mm", 99999.0)),
+            )
+        if self._current_recipe_code is not None:
+            recipe = self._recipe_by_code.get(int(self._current_recipe_code))
+            if recipe is not None:
+                return (
+                    float(getattr(recipe, "diameter_min_mm", 0.0)),
+                    float(getattr(recipe, "diameter_max_mm", 99999.0)),
+                )
+        return (
+            float(getattr(self.config.models.glass, "diameter_min_mm", 0.0)),
+            float(getattr(self.config.models.glass, "diameter_max_mm", 99999.0)),
+        )
 
     def _current_model_path(self) -> str:
         algo = (self.config.models.algo or "INP").upper()

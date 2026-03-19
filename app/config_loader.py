@@ -87,6 +87,8 @@ class GlassRecipeConfig:
     name: Optional[str] = None
     glass_threshold: float = 0.5
     crop_yolo_path: Optional[str] = None
+    diameter_min_mm: float = 0.0
+    diameter_max_mm: float = 99999.0
 
 
 @dataclass
@@ -99,6 +101,8 @@ class InpModelConfig:
     inp_blur_sigma: float = 4.0
     inp_max_ratio: float = 0.0  # 0 -> use max; otherwise mean of top-k ratio
     inp_bin_thresh: float = 0.2
+    diameter_min_mm: float = 0.0
+    diameter_max_mm: float = 99999.0
 
 
 @dataclass
@@ -112,6 +116,8 @@ class GlassModelConfig:
     glass_blur_sigma: float = 4.0
     glass_norm_eps: float = 1e-8
     glass_bin_thresh: float = 0.8
+    diameter_min_mm: float = 0.0
+    diameter_max_mm: float = 99999.0
 
 
 @dataclass
@@ -209,6 +215,11 @@ class InferenceServiceConfig:
 
 
 @dataclass
+class MeasurementConfig:
+    mm_per_pixel: float = 0.01
+
+
+@dataclass
 class MirrorConfig:
     target_ring: int = 10
     bright_thresh: int = 160
@@ -231,6 +242,7 @@ class AppConfig:
     io: IOConfig
     layout: LayoutConfig
     inference_service: InferenceServiceConfig = field(default_factory=InferenceServiceConfig)
+    measurement: MeasurementConfig = field(default_factory=MeasurementConfig)
     mirror: MirrorConfig = field(default_factory=MirrorConfig)
     app_title: Optional[str] = None
     window: Optional[WindowConfig] = None
@@ -329,6 +341,8 @@ def load_config(path: str | Path) -> AppConfig:
             inp_blur_sigma=float(legacy.get("inp_blur_sigma", 4.0)),
             inp_max_ratio=float(legacy.get("inp_max_ratio", 0.0)),
             inp_bin_thresh=float(legacy.get("inp_bin_thresh", 0.2)),
+            diameter_min_mm=float(legacy.get("diameter_min_mm", 0.0)),
+            diameter_max_mm=float(legacy.get("diameter_max_mm", 99999.0)),
         )
         glass = GlassModelConfig(
             path=_require(legacy, "path"),
@@ -340,6 +354,8 @@ def load_config(path: str | Path) -> AppConfig:
             glass_blur_sigma=float(legacy.get("glass_blur_sigma", 4.0)),
             glass_norm_eps=float(legacy.get("glass_norm_eps", 1e-8)),
             glass_bin_thresh=float(legacy.get("glass_bin_thresh", 0.8)),
+            diameter_min_mm=float(legacy.get("diameter_min_mm", 0.0)),
+            diameter_max_mm=float(legacy.get("diameter_max_mm", 99999.0)),
         )
     else:
         raise ConfigError("Missing models.inp and models.glass sections")
@@ -351,6 +367,8 @@ def load_config(path: str | Path) -> AppConfig:
             raise ConfigError(f"Missing required glass_threshold for recipe code: {code}")
         recipe_entry = dict(entry)
         recipe_entry["glass_threshold"] = float(recipe_entry["glass_threshold"])
+        recipe_entry["diameter_min_mm"] = float(recipe_entry.get("diameter_min_mm", 0.0))
+        recipe_entry["diameter_max_mm"] = float(recipe_entry.get("diameter_max_mm", 99999.0))
         glass_recipes.append(GlassRecipeConfig(**recipe_entry))
     models = ModelConfig(
         algo=algo,
@@ -371,6 +389,8 @@ def load_config(path: str | Path) -> AppConfig:
         if isinstance(inference_service_raw, dict)
         else InferenceServiceConfig()
     )
+    measurement_raw = raw.get("measurement", {})
+    measurement_cfg = MeasurementConfig(**measurement_raw) if isinstance(measurement_raw, dict) else MeasurementConfig()
     mirror_raw = raw.get("mirror", {})
     mirror_cfg = MirrorConfig(**mirror_raw) if isinstance(mirror_raw, dict) else MirrorConfig()
 
@@ -381,6 +401,7 @@ def load_config(path: str | Path) -> AppConfig:
         io=io_cfg,
         layout=layout,
         inference_service=inference_service_cfg,
+        measurement=measurement_cfg,
         mirror=mirror_cfg,
         app_title=(str(raw.get("app_title")).strip() if raw.get("app_title") is not None else None),
         window=window_cfg,
