@@ -23,6 +23,7 @@ class InferenceResultPayload:
     overlay_image: np.ndarray
     patches: List[CropResult]
     anomaly_scores: List[float]
+    diameters_mm: List[Optional[float]]
     statuses: List[str]
     ng_total: int
     anomaly_inference_ms: float
@@ -30,6 +31,8 @@ class InferenceResultPayload:
     timestamp: float
     model_path: str
     threshold: float
+    diameter_min_mm: float
+    diameter_max_mm: float
     anomaly_maps: Optional[List[np.ndarray]] = None
     detected_circles: Optional[int] = None
     expected_circles: Optional[int] = None
@@ -79,6 +82,34 @@ class InferencePipeline:
         if recipes:
             return float(recipes[0].glass_threshold)
         return float(self.config.models.glass.glass_threshold)
+
+    def _resolve_active_diameter_thresholds(self) -> tuple[float, float]:
+        algo = (self.config.models.algo or "INP").upper()
+        if algo != "GLASS":
+            return (
+                float(getattr(self.config.models.inp, "diameter_min_mm", 0.0)),
+                float(getattr(self.config.models.inp, "diameter_max_mm", 99999.0)),
+            )
+
+        active_code = getattr(self.config.models, "active_recipe_code", None)
+        recipes = list(getattr(self.config.models, "glass_recipes", []))
+        if active_code is not None:
+            for recipe in recipes:
+                if int(getattr(recipe, "code", -1)) == int(active_code):
+                    return (
+                        float(getattr(recipe, "diameter_min_mm", 0.0)),
+                        float(getattr(recipe, "diameter_max_mm", 99999.0)),
+                    )
+        if recipes:
+            recipe = recipes[0]
+            return (
+                float(getattr(recipe, "diameter_min_mm", 0.0)),
+                float(getattr(recipe, "diameter_max_mm", 99999.0)),
+            )
+        return (
+            float(getattr(self.config.models.glass, "diameter_min_mm", 0.0)),
+            float(getattr(self.config.models.glass, "diameter_max_mm", 99999.0)),
+        )
 
     def _init_crop_yolo_detector(self, model_path: Optional[str] = None) -> Optional[YoloDetector]:
         yolo_cfg = self.config.models.yolo
@@ -181,7 +212,22 @@ class InferencePipeline:
         if timings is not None:
             timings["anomaly_model"] = float(anomaly.inference_ms) if anomaly is not None else 0.0
 
-        statuses = ["OK" if score <= threshold else "NG" for score in anomaly.scores] if anomaly is not None else []
+        mm_per_pixel = max(float(getattr(self.config.measurement, "mm_per_pixel", 0.01)), 1e-9)
+        diameters_mm = [
+            (None if patch.diameter_px is None else float(patch.diameter_px) * mm_per_pixel)
+            for patch in patches
+        ]
+        diameter_min_mm, diameter_max_mm = self._resolve_active_diameter_thresholds()
+
+        statuses: List[str] = []
+        if anomaly is not None:
+            for patch, score, diameter_mm in zip(patches, anomaly.scores, diameters_mm):
+                score_ok = float(score) <= threshold
+                diameter_ok = (
+                    diameter_mm is not None
+                    and float(diameter_min_mm) <= float(diameter_mm) <= float(diameter_max_mm)
+                )
+                statuses.append("OK" if score_ok and diameter_ok else "NG")
         ng_total = sum(1 for status in statuses if status == "NG")
 
         yolo_result = None
@@ -197,6 +243,7 @@ class InferencePipeline:
             overlay_image=overlay,
             patches=patches,
             anomaly_scores=anomaly.scores if anomaly is not None else [],
+            diameters_mm=diameters_mm,
             statuses=statuses,
             ng_total=ng_total,
             anomaly_inference_ms=anomaly.inference_ms if anomaly is not None else 0.0,
@@ -204,6 +251,8 @@ class InferencePipeline:
             timestamp=time.time(),
             model_path=model_path,
             threshold=threshold,
+            diameter_min_mm=diameter_min_mm,
+            diameter_max_mm=diameter_max_mm,
             anomaly_maps=anomaly.maps if anomaly is not None else None,
             detected_circles=detected,
             expected_circles=expected,

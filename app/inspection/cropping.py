@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import logging
 from time import perf_counter
-from typing import List
+from typing import List, Optional
 
 import numpy as np
 import cv2
@@ -21,6 +21,7 @@ class CropResult:
     index: int
     image: np.ndarray
     bbox: tuple[int, int, int, int]
+    diameter_px: Optional[float] = None
 
 
 class CircleDetectionError(ValueError):
@@ -456,7 +457,8 @@ class YoloCircleCropper(CircleCropper):
             cropped_roi, bbox = self._crop_by_circle_fast(image, float(cx), float(cy), float(r), pad)
             if cropped_roi is None or bbox is None:
                 continue
-            patches.append(CropResult(index=idx, image=cropped_roi, bbox=bbox))
+            measurement_r = max(1.0, float(r) - radius_expand)
+            patches.append(CropResult(index=idx, image=cropped_roi, bbox=bbox, diameter_px=float(2.0 * measurement_r)))
         self.last_timing_ms["crop_mask_and_cut_ms"] = (perf_counter() - t3) * 1000.0
         return patches, detected
 

@@ -79,6 +79,7 @@ class BrightDiskResult:
 
 @dataclass
 class RingDetectionResult:
+    requested_ring: int
     selected_ring: int
     center: Tuple[float, float]
     radius: float
@@ -367,13 +368,12 @@ def detect_numbered_ring(
         min_peak_distance=min_peak_distance,
     )
 
-    if len(peaks) < target_ring:
-        raise RuntimeError(
-            f"Chi tim duoc {len(peaks)} vong. Hay giam min peak value, giam min peak distance, hoac tang crop ratio."
-        )
+    if not peaks:
+        raise RuntimeError("Khong tim thay peak nao cho profile ring. Hay giam min peak value hoac dieu chinh bright threshold.")
 
     ring_radii = [float(rad) for rad, _ in peaks[:10]]
-    selected_radius_roi = float(ring_radii[target_ring - 1])
+    selected_ring = min(int(target_ring), len(ring_radii))
+    selected_radius_roi = float(ring_radii[selected_ring - 1])
     refined_center_roi, refined_radius = refine_center_and_radius(
         score,
         center=roi_center,
@@ -388,7 +388,8 @@ def detect_numbered_ring(
     )
 
     result = RingDetectionResult(
-        selected_ring=int(target_ring),
+        requested_ring=int(target_ring),
+        selected_ring=int(selected_ring),
         center=center_abs,
         radius=float(refined_radius),
         bright_disk=bright_disk,
@@ -400,19 +401,19 @@ def detect_numbered_ring(
     profile_dbg = build_profile_view(
         profile_smoothed,
         peaks,
-        selected_ring=target_ring,
+        selected_ring=selected_ring,
         radius_offset=min_radius,
         selected_radius=refined_radius,
     )
 
     roi_dbg = roi_bgr.copy()
     for idx, ring_radius in enumerate(ring_radii, start=1):
-        color = (0, 0, 255) if idx == target_ring else (0, 200, 0)
-        thickness = 3 if idx == target_ring else 1
+        color = (0, 0, 255) if idx == selected_ring else (0, 200, 0)
+        thickness = 3 if idx == selected_ring else 1
         cv2.circle(
             roi_dbg,
             (int(round(refined_center_roi[0])), int(round(refined_center_roi[1]))),
-            int(round(ring_radius if idx != target_ring else refined_radius)),
+            int(round(ring_radius if idx != selected_ring else refined_radius)),
             color,
             thickness,
         )

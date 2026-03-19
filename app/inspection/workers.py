@@ -24,10 +24,9 @@ from app.models.yolo import YoloResult
 from PyQt5 import QtCore
 from app.utils import ensure_dir, save_image
 try:
-    from kiem_guong import draw_overlay, find_outer_circle_from_edges
+    from kiem_guong_2 import detect_numbered_ring
 except Exception:  # pragma: no cover - optional mirror module
-    draw_overlay = None  # type: ignore
-    find_outer_circle_from_edges = None  # type: ignore
+    detect_numbered_ring = None  # type: ignore
 
 LOGGER = logging.getLogger(__name__)
 
@@ -44,6 +43,7 @@ class InspectionResult:
     overlay_image: np.ndarray
     patches: List[CropResult]
     anomaly_scores: List[float]
+    diameters_mm: List[Optional[float]]
     statuses: List[str]
     ng_total: int
     anomaly_inference_ms: float
@@ -52,6 +52,8 @@ class InspectionResult:
     timestamp: float
     model_path: str
     threshold: float
+    diameter_min_mm: float
+    diameter_max_mm: float
     anomaly_maps: Optional[List[np.ndarray]] = None  # Optional per-patch normalized maps
     detected_circles: Optional[int] = None
     expected_circles: Optional[int] = None
@@ -64,12 +66,19 @@ class InspectionResult:
             "threshold": self.threshold,
             "count": len(self.patches),
             "per_part": [
-                {"idx": patch.index, "score": float(score), "status": status}
-                for patch, score, status in zip(self.patches, self.anomaly_scores, self.statuses)
+                {
+                    "idx": patch.index,
+                    "score": float(score),
+                    "diameter_mm": (None if diameter is None else float(diameter)),
+                    "status": status,
+                }
+                for patch, score, diameter, status in zip(self.patches, self.anomaly_scores, self.diameters_mm, self.statuses)
             ],
             "ng_total": self.ng_total,
             "inference_ms": self.anomaly_inference_ms,
             "cycle_elapsed_ms": self.cycle_elapsed_ms,
+            "diameter_threshold_min_mm": float(self.diameter_min_mm),
+            "diameter_threshold_max_mm": float(self.diameter_max_mm),
             "yolo": None
             if self.yolo_result is None
             else {
@@ -214,6 +223,7 @@ class InspectionWorker(QtCore.QObject):
             overlay_image=data["overlay_image"],  # type: ignore[arg-type]
             patches=data["patches"],  # type: ignore[arg-type]
             anomaly_scores=data["anomaly_scores"],  # type: ignore[arg-type]
+            diameters_mm=data.get("diameters_mm", []),  # type: ignore[arg-type]
             statuses=data["statuses"],  # type: ignore[arg-type]
             ng_total=int(data["ng_total"]),
             anomaly_inference_ms=float(data["anomaly_inference_ms"]),
@@ -222,6 +232,8 @@ class InspectionWorker(QtCore.QObject):
             timestamp=float(data["timestamp"]),
             model_path=str(data["model_path"]),
             threshold=float(data["threshold"]),
+            diameter_min_mm=float(data.get("diameter_min_mm", 0.0)),
+            diameter_max_mm=float(data.get("diameter_max_mm", 99999.0)),
             anomaly_maps=data.get("anomaly_maps"),  # type: ignore[arg-type]
             detected_circles=(None if data.get("detected_circles") is None else int(data["detected_circles"])),
             expected_circles=(None if data.get("expected_circles") is None else int(data["expected_circles"])),
@@ -375,28 +387,33 @@ class InspectionWorker(QtCore.QObject):
                     LOGGER.exception("Finalize cycle failed")
 
     def _measure_mirror(self, image: np.ndarray) -> tuple[np.ndarray, float, bool]:
-        if find_outer_circle_from_edges is None:
-            raise RuntimeError("Mirror module unavailable: kiem_guong.py not found")
-        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-        blur_kernel = max(1, int(self.config.mirror_blur_kernel))
-        if blur_kernel % 2 == 0:
-            blur_kernel += 1
-        blur = cv2.GaussianBlur(gray, (blur_kernel, blur_kernel), 0)
-        edges = cv2.Canny(blur, int(self.config.mirror_canny_threshold1), int(self.config.mirror_canny_threshold2))
-        result_circle, _ = find_outer_circle_from_edges(edges, min_contour_area=float(self.config.mirror_min_contour_area))
-        diameter = float(2.0 * result_circle.radius)
-        is_ok = float(self.config.mirror_diameter_min) <= diameter <= float(self.config.mirror_diameter_max)
-        if draw_overlay is not None:
-            overlay = draw_overlay(image, result_circle.center, result_circle.radius)
-        else:
+        if detect_numbered_ring is None:
+            raise RuntimeError("Mirror module unavailable: kiem_guong_2.py not found")
+        mirror_cfg = self.config.mirror
+        result_ring, stages = detect_numbered_ring(
+            image,
+            target_ring=int(mirror_cfg.target_ring),
+            bright_thresh=int(mirror_cfg.bright_thresh),
+            crop_ratio=float(mirror_cfg.crop_ratio),
+            band_half_width=int(mirror_cfg.band_half_width),
+            smooth_kernel=int(mirror_cfg.profile_smooth),
+            min_peak_value=float(mirror_cfg.min_peak_value),
+            min_peak_distance=int(mirror_cfg.min_peak_distance),
+            max_ring_ratio=float(mirror_cfg.max_ring_ratio),
+            center_refine=int(mirror_cfg.center_refine),
+        )
+        diameter = float(2.0 * result_ring.radius)
+        is_ok = float(mirror_cfg.diameter_min) <= diameter <= float(mirror_cfg.diameter_max)
+        overlay = stages.get("Overlay")
+        if overlay is None:
             overlay = image.copy()
-            cx, cy = map(int, map(round, result_circle.center))
-            cv2.circle(overlay, (cx, cy), int(round(result_circle.radius)), (0, 255, 0), 3)
-            cv2.putText(overlay, f"Outer D={diameter:.2f}px", (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 255, 255), 2, cv2.LINE_AA)
+            cx, cy = map(int, map(round, result_ring.center))
+            cv2.circle(overlay, (cx, cy), int(round(result_ring.radius)), (0, 0, 255), 3)
+            cv2.putText(overlay, f"D={diameter:.2f}px", (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 255, 255), 2, cv2.LINE_AA)
         color = (0, 255, 0) if is_ok else (0, 0, 255)
         cv2.putText(
             overlay,
-            f"Mirror {'OK' if is_ok else 'NG'} | D={diameter:.2f}px | lim=[{self.config.mirror_diameter_min:.2f},{self.config.mirror_diameter_max:.2f}]",
+            f"Mirror {'OK' if is_ok else 'NG'} | D={diameter:.2f}px | lim=[{mirror_cfg.diameter_min:.2f},{mirror_cfg.diameter_max:.2f}]",
             (20, max(70, overlay.shape[0] - 24)),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.8,
@@ -451,7 +468,13 @@ class InspectionWorker(QtCore.QObject):
                 self.plc.set_error(False)
                 self.plc.set_done(True)
                 self.mirror_test_completed.emit(overlay, diameter, is_ok)
-                LOGGER.info("Mirror mode diameter=%.3f, limits=[%.3f, %.3f], result=%s", diameter, self.config.mirror_diameter_min, self.config.mirror_diameter_max, "OK" if is_ok else "NG")
+                LOGGER.info(
+                    "Mirror mode diameter=%.3f, limits=[%.3f, %.3f], result=%s",
+                    diameter,
+                    self.config.mirror.diameter_min,
+                    self.config.mirror.diameter_max,
+                    "OK" if is_ok else "NG",
+                )
             except Exception as exc:
                 LOGGER.warning("Mirror cycle failed or no circle detected: %s", exc)
                 try:
