@@ -209,6 +209,21 @@ class InferenceServiceConfig:
 
 
 @dataclass
+class MirrorConfig:
+    target_ring: int = 10
+    bright_thresh: int = 160
+    crop_ratio: float = 0.44
+    band_half_width: int = 2
+    profile_smooth: int = 9
+    min_peak_value: float = 6.0
+    min_peak_distance: int = 28
+    max_ring_ratio: float = 0.48
+    center_refine: int = 10
+    diameter_min: float = 0.0
+    diameter_max: float = 99999.0
+
+
+@dataclass
 class AppConfig:
     camera: CameraConfig
     plc: PlcConfig
@@ -216,15 +231,10 @@ class AppConfig:
     io: IOConfig
     layout: LayoutConfig
     inference_service: InferenceServiceConfig = field(default_factory=InferenceServiceConfig)
+    mirror: MirrorConfig = field(default_factory=MirrorConfig)
     app_title: Optional[str] = None
     window: Optional[WindowConfig] = None
     sample_image_root: str = "samples"
-    mirror_blur_kernel: int = 3
-    mirror_canny_threshold1: int = 222
-    mirror_canny_threshold2: int = 100
-    mirror_min_contour_area: float = 5000.0
-    mirror_diameter_min: float = 0.0
-    mirror_diameter_max: float = 99999.0
     timing_log_enabled: bool = False
 
 
@@ -361,6 +371,8 @@ def load_config(path: str | Path) -> AppConfig:
         if isinstance(inference_service_raw, dict)
         else InferenceServiceConfig()
     )
+    mirror_raw = raw.get("mirror", {})
+    mirror_cfg = MirrorConfig(**mirror_raw) if isinstance(mirror_raw, dict) else MirrorConfig()
 
     return AppConfig(
         camera=camera,
@@ -369,14 +381,9 @@ def load_config(path: str | Path) -> AppConfig:
         io=io_cfg,
         layout=layout,
         inference_service=inference_service_cfg,
+        mirror=mirror_cfg,
         app_title=(str(raw.get("app_title")).strip() if raw.get("app_title") is not None else None),
         window=window_cfg,
         sample_image_root=str(raw.get("sample_image_root", "samples")),
-        mirror_blur_kernel=int(raw.get("mirror_blur_kernel", 3)),
-        mirror_canny_threshold1=int(raw.get("mirror_canny_threshold1", 222)),
-        mirror_canny_threshold2=int(raw.get("mirror_canny_threshold2", 100)),
-        mirror_min_contour_area=float(raw.get("mirror_min_contour_area", 5000.0)),
-        mirror_diameter_min=float(raw.get("mirror_diameter_min", 0.0)),
-        mirror_diameter_max=float(raw.get("mirror_diameter_max", 99999.0)),
         timing_log_enabled=bool(raw.get("timing_log_enabled", False)),
     )
