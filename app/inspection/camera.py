@@ -35,6 +35,18 @@ class BaslerCamera:
         self._config = config
         self._camera = None
         self._device_class: Optional[str] = None
+        self._hardware_reverse_x_applied = False
+        self._hardware_reverse_y_applied = False
+
+    def _try_set_boolean_feature(self, feature_name: str, enabled: bool) -> bool:
+        if self._camera is None or not hasattr(self._camera, feature_name):
+            return False
+        try:
+            getattr(self._camera, feature_name).SetValue(bool(enabled))  # type: ignore[attr-defined]
+            return True
+        except Exception as exc:
+            LOGGER.debug("Feature %s not applied: %s", feature_name, exc)
+            return False
 
     def connect(self) -> None:
         if pylon is None:
@@ -63,6 +75,8 @@ class BaslerCamera:
             self._camera = pylon.InstantCamera(factory.CreateDevice(selected))
         except Exception as exc:
             raise CameraError(f"Failed to create camera instance: {exc}")
+        self._hardware_reverse_x_applied = False
+        self._hardware_reverse_y_applied = False
 
         # Open and apply configuration
         self._camera.Open()
@@ -117,6 +131,19 @@ class BaslerCamera:
                     self._camera.PixelFormat.SetValue("BayerRG8")
         except Exception as exc:
             LOGGER.warning("Could not apply pixel format: %s", exc)
+
+        # Reverse X/Y: prefer hardware feature if exposed by the camera; otherwise
+        # keep a software fallback in capture().
+        self._hardware_reverse_x_applied = self._try_set_boolean_feature("ReverseX", self._config.reverse_x)
+        if self._hardware_reverse_x_applied:
+            LOGGER.info("Applied camera hardware ReverseX=%s", self._config.reverse_x)
+        elif self._config.reverse_x:
+            LOGGER.info("Camera does not expose ReverseX; will use software horizontal flip")
+        self._hardware_reverse_y_applied = self._try_set_boolean_feature("ReverseY", self._config.reverse_y)
+        if self._hardware_reverse_y_applied:
+            LOGGER.info("Applied camera hardware ReverseY=%s", self._config.reverse_y)
+        elif self._config.reverse_y:
+            LOGGER.info("Camera does not expose ReverseY; will use software vertical flip")
 
         # GigE-specific tuning (best-effort)
         try:
@@ -180,6 +207,10 @@ class BaslerCamera:
             converted = converter.Convert(result)
             array = converted.GetArray()
             array = cv2.cvtColor(array, cv2.COLOR_RGB2BGR)
+            if self._config.reverse_x and not self._hardware_reverse_x_applied:
+                array = cv2.flip(array, 1)
+            if self._config.reverse_y and not self._hardware_reverse_y_applied:
+                array = cv2.flip(array, 0)
             return CaptureResult(image=array, timestamp_ms=timestamp)
         finally:
             try:

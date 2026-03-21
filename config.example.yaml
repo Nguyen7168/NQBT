@@ -6,6 +6,8 @@ camera:
   exposure_us: 8000
   gain: 0
   pixel_format: "Mono8"
+  reverse_x: false
+  reverse_y: false
   reconnect_enabled: true
   reconnect_interval_ms: 2000
   reconnect_backoff_multiplier: 1.5
