@@ -14,6 +14,8 @@ class CameraConfig:
     exposure_us: Optional[int] = None
     gain: Optional[float] = None
     pixel_format: Optional[str] = None
+    reverse_x: bool = False
+    reverse_y: bool = False
     reconnect_enabled: bool = True
     reconnect_interval_ms: int = 2000
     reconnect_backoff_multiplier: float = 1.5
@@ -282,6 +284,8 @@ def load_config(path: str | Path) -> AppConfig:
         exposure_us=(int(camera_raw["exposure_us"]) if camera_raw.get("exposure_us") is not None else None),
         gain=(float(camera_raw["gain"]) if camera_raw.get("gain") is not None else None),
         pixel_format=camera_raw.get("pixel_format"),
+        reverse_x=bool(camera_raw.get("reverse_x", False)),
+        reverse_y=bool(camera_raw.get("reverse_y", False)),
         reconnect_enabled=bool(camera_raw.get("reconnect_enabled", True)),
         reconnect_interval_ms=int(camera_raw.get("reconnect_interval_ms", 2000)),
         reconnect_backoff_multiplier=float(camera_raw.get("reconnect_backoff_multiplier", 1.5)),

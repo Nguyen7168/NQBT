@@ -6,6 +6,8 @@ camera:
   exposure_us: 8000
   gain: 0
   pixel_format: "BayerRG8"
+  reverse_x: false
+  reverse_y: false
 
 window:
   x: 0
