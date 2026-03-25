@@ -62,37 +62,33 @@ class InferencePipeline:
                 LOGGER.warning("Failed to initialise YOLO detector: %s", exc)
         self.crop_yolo: Optional[YoloDetector] = None
         self._configure_cropper(crop_yolo_path=getattr(config.models.yolo, "crop_path", None))
-        self._active_glass_threshold = self._resolve_active_glass_threshold()
+        self._active_recipe_threshold = self._resolve_active_recipe_threshold()
 
     @property
     def anomaly_error(self) -> Optional[str]:
         return self._anomaly_error
 
     @property
-    def active_glass_threshold(self) -> float:
-        return float(self._active_glass_threshold)
+    def active_recipe_threshold(self) -> float:
+        return float(self._active_recipe_threshold)
 
-    def _resolve_active_glass_threshold(self) -> float:
+    def _resolve_active_recipe_threshold(self) -> float:
         active_code = getattr(self.config.models, "active_recipe_code", None)
-        recipes = list(getattr(self.config.models, "glass_recipes", []))
+        recipes = list(getattr(self.config.models, "recipes", []))
         if active_code is not None:
             for recipe in recipes:
                 if int(getattr(recipe, "code", -1)) == int(active_code):
-                    return float(recipe.glass_threshold)
+                    return float(recipe.threshold)
         if recipes:
-            return float(recipes[0].glass_threshold)
-        return float(self.config.models.glass.glass_threshold)
+            return float(recipes[0].threshold)
+        algo = (self.config.models.algo or "INP").upper()
+        if algo == "GLASS":
+            return float(self.config.models.glass.glass_threshold)
+        return float(self.config.models.inp.inp_threshold)
 
     def _resolve_active_diameter_thresholds(self) -> tuple[float, float]:
-        algo = (self.config.models.algo or "INP").upper()
-        if algo != "GLASS":
-            return (
-                float(getattr(self.config.models.inp, "diameter_min_mm", 0.0)),
-                float(getattr(self.config.models.inp, "diameter_max_mm", 99999.0)),
-            )
-
         active_code = getattr(self.config.models, "active_recipe_code", None)
-        recipes = list(getattr(self.config.models, "glass_recipes", []))
+        recipes = list(getattr(self.config.models, "recipes", []))
         if active_code is not None:
             for recipe in recipes:
                 if int(getattr(recipe, "code", -1)) == int(active_code):
@@ -105,6 +101,12 @@ class InferencePipeline:
             return (
                 float(getattr(recipe, "diameter_min_mm", 0.0)),
                 float(getattr(recipe, "diameter_max_mm", 99999.0)),
+            )
+        algo = (self.config.models.algo or "INP").upper()
+        if algo != "GLASS":
+            return (
+                float(getattr(self.config.models.inp, "diameter_min_mm", 0.0)),
+                float(getattr(self.config.models.inp, "diameter_max_mm", 99999.0)),
             )
         return (
             float(getattr(self.config.models.glass, "diameter_min_mm", 0.0)),
@@ -150,18 +152,17 @@ class InferencePipeline:
     def reload_recipe_models(self, model_path: str, threshold: float, crop_yolo_path: str = "") -> tuple[str, float]:
         if (self.config.models.algo or "INP").upper() == "GLASS":
             self.config.models.glass.path = model_path
-            self._active_glass_threshold = float(threshold)
-            effective_threshold = float(self._active_glass_threshold)
+            self._active_recipe_threshold = float(threshold)
+            effective_threshold = float(self._active_recipe_threshold)
         else:
             self.config.models.inp.path = model_path
-            self.config.models.inp.inp_threshold = float(threshold)
-            effective_threshold = float(self.config.models.inp.inp_threshold)
+            self._active_recipe_threshold = float(threshold)
+            effective_threshold = float(self._active_recipe_threshold)
         self.anomaly = AnomalyDetector(self.config.models)
         resolved_crop_path = (crop_yolo_path or "").strip() or getattr(self.config.models.yolo, "crop_path", None)
         if resolved_crop_path:
             self.config.models.yolo.crop_path = resolved_crop_path
-        if (self.config.models.algo or "INP").upper() == "GLASS":
-            self._configure_cropper(crop_yolo_path=resolved_crop_path)
+        self._configure_cropper(crop_yolo_path=resolved_crop_path)
         self._anomaly_error = None
         LOGGER.info("Reloaded anomaly model from %s", model_path)
         return model_path, effective_threshold
@@ -202,11 +203,10 @@ class InferencePipeline:
                 anomaly = self.anomaly.infer([p.image for p in patches])
 
         algo = (self.config.models.algo or "INP").upper()
+        threshold = float(self._active_recipe_threshold)
         if algo == "GLASS":
-            threshold = float(self._active_glass_threshold)
             model_path = self.config.models.glass.path
         else:
-            threshold = float(self.config.models.inp.inp_threshold)
             model_path = self.config.models.inp.path
 
         if timings is not None:
