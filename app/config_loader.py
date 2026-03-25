@@ -99,6 +99,7 @@ class InpModelConfig:
     path: str
     provider: str = "cuda"
     input_size: int = 256
+    inp_mode: str = "default"  # "default" or "legacy_script"
     inp_threshold: float = 0.15
     inp_blur_kernel: int = 5
     inp_blur_sigma: float = 4.0
