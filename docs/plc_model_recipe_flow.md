@@ -5,7 +5,7 @@
 
 ## Mục tiêu
 - PLC ghi mã hàng vào `DM1530` (model_select_word).
-- App tự chuyển model GLASS tương ứng theo mapping cấu hình.
+- App tự chuyển model theo `models.algo` tương ứng theo mapping cấu hình.
 - App ghi lại mã đang chạy vào `DM1524` (model_current_word) khi load thành công.
 
 ## Cấu hình
@@ -13,7 +13,7 @@ Trong `config.yaml`:
 - `plc.addr.model_select_word`: thanh ghi PLC gửi mã hàng (ví dụ DM1530).
 - `plc.addr.model_current_word`: thanh ghi App phản hồi model hiện hành (ví dụ DM1524).
 - `plc.model_poll_interval_ms`: chu kỳ poll model code.
-- `models.glass_recipes`: danh sách mapping `code -> path (+ threshold)`.
+- `models.recipes`: danh sách mapping `code -> inp_model_path/glass_model_path (+ threshold)`.
 
 ## Quy trình runtime
 1. `PlcModelSelectWorker` poll `model_select_word`.
