@@ -329,7 +329,9 @@ def load_config(path: str | Path) -> AppConfig:
     )
 
     models_raw = _require(raw, "models")
-    algo = models_raw.get("algo", "INP")
+    algo = str(models_raw.get("algo", "INP")).strip().upper()
+    if algo not in {"INP", "GLASS"}:
+        raise ConfigError(f"Unsupported models.algo: {algo}. Expected 'INP' or 'GLASS'.")
     # Support both new separated config and legacy single anomaly block
     if "inp" in models_raw and "glass" in models_raw:
         inp = InpModelConfig(**_require(models_raw, "inp"))

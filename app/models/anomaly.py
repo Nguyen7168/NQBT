@@ -185,11 +185,13 @@ class _GlassTorchDetector:
 
 class AnomalyDetector:
     def __init__(self, models: ModelConfig):
-        algo = (models.algo or "INP").upper()
+        algo = str(models.algo or "INP").strip().upper()
         if algo == "GLASS":
             self._impl = _GlassTorchDetector(models.glass)
-        else:
+        elif algo == "INP":
             self._impl = _InpOnnxDetector(models.inp)
+        else:
+            raise RuntimeError(f"Unsupported models.algo: {algo}")
 
     def infer(self, patches: Sequence[np.ndarray]) -> AnomalyResult:
         return self._impl.infer(patches)
