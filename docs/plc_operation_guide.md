@@ -75,7 +75,7 @@ Tài liệu này là bản vận hành chuẩn giữa **PLC ↔ App** để trá
   1. `sample_image_root/<recipe.name>/*.png`
   2. nếu không có `recipe.name` thì fallback `sample_image_root/<active_recipe_code>/*.png`
 - Chỉ nhận file đuôi `*.png` (không tự lấy jpg/jpeg).
-- Tên thư mục phải trùng **chính xác** với `models.glass_recipes[].name` (phân biệt hoa/thường trên Linux).
+- Tên thư mục phải trùng **chính xác** với `models.recipes[].name` (phân biệt hoa/thường trên Linux).
 
 ---
 
@@ -94,7 +94,7 @@ samples/
 
 Trong đó:
 - `samples` là giá trị `sample_image_root` trong file config.
-- `23-233HA-E`, `ITEM_2` phải đúng với tên recipe trong `models.glass_recipes`.
+- `23-233HA-E`, `ITEM_2` phải đúng với tên recipe trong `models.recipes`.
 
 ---
 
