@@ -501,7 +501,7 @@ class InspectionWorker(QtCore.QObject):
     def reload_anomaly_model(self, model_path: str) -> None:
         self.reload_anomaly_model_with_threshold(
             model_path,
-            self.pipeline.active_glass_threshold if (self.config.models.algo or "INP").upper() == "GLASS" else self.config.models.inp.inp_threshold,
+            self.pipeline.active_recipe_threshold,
         )
 
     @QtCore.pyqtSlot(str, float)

@@ -10,7 +10,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from app.config_loader import AppConfig, GlassRecipeConfig
+from app.config_loader import AppConfig, RecipeConfig
 from app.inspection.plc_client import PlcController, PLCError
 from app.inspection.workers import (
     InspectionResult,
@@ -49,8 +49,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self._plc_status = plc_status
         self._manual_images: List[np.ndarray] = []
         self._manual_index = 0
-        self._recipe_by_code: dict[int, GlassRecipeConfig] = {
-            int(recipe.code): recipe for recipe in getattr(self.config.models, "glass_recipes", [])
+        self._recipe_by_code: dict[int, RecipeConfig] = {
+            int(recipe.code): recipe for recipe in getattr(self.config.models, "recipes", [])
         }
         self._current_recipe_code: Optional[int] = getattr(self.config.models, "active_recipe_code", None)
         self._pending_recipe_code: Optional[int] = None
@@ -440,7 +440,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.model_select_worker = None
         model_select_addr = getattr(self.config.plc.addr, "model_select_word", None)
-        if (self.config.models.algo or "INP").upper() == "GLASS" and model_select_addr and self._recipe_by_code:
+        if model_select_addr and self._recipe_by_code:
             model_poll_interval = max(self.config.plc.model_poll_interval_ms, 10) / 1000.0
             self.model_select_worker = PlcModelSelectWorker(
                 self.plc,
@@ -1121,7 +1121,9 @@ class MainWindow(QtWidgets.QMainWindow):
             except PLCError:
                 pass
             return
-        threshold = float(recipe.glass_threshold)
+        threshold = float(recipe.threshold)
+        algo = (self.config.models.algo or "INP").upper()
+        model_path = recipe.glass_model_path if algo == "GLASS" else recipe.inp_model_path
         self._pending_recipe_code = int(model_code)
         self._recipe_switch_in_progress = True
         try:
@@ -1132,7 +1134,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.worker,
             "reload_recipe_models",
             QtCore.Qt.QueuedConnection,
-            QtCore.Q_ARG(str, recipe.path),
+            QtCore.Q_ARG(str, model_path),
             QtCore.Q_ARG(float, threshold),
             QtCore.Q_ARG(str, (recipe.crop_yolo_path or "")),
         )
@@ -1251,23 +1253,15 @@ class MainWindow(QtWidgets.QMainWindow):
         )
 
     def _current_threshold(self) -> float:
-        algo = (self.config.models.algo or "INP").upper()
-        if algo != "GLASS":
-            return float(self.config.models.inp.inp_threshold)
         if self._current_recipe_code is not None:
             recipe = self._recipe_by_code.get(int(self._current_recipe_code))
             if recipe is not None:
-                return float(recipe.glass_threshold)
-        # Safety fallback for transitional configs.
-        return float(self.config.models.glass.glass_threshold)
+                return float(recipe.threshold)
+        # Safety fallback.
+        algo = (self.config.models.algo or "INP").upper()
+        return float(self.config.models.glass.glass_threshold if algo == "GLASS" else self.config.models.inp.inp_threshold)
 
     def _current_diameter_thresholds(self) -> tuple[float, float]:
-        algo = (self.config.models.algo or "INP").upper()
-        if algo != "GLASS":
-            return (
-                float(getattr(self.config.models.inp, "diameter_min_mm", 0.0)),
-                float(getattr(self.config.models.inp, "diameter_max_mm", 99999.0)),
-            )
         if self._current_recipe_code is not None:
             recipe = self._recipe_by_code.get(int(self._current_recipe_code))
             if recipe is not None:
@@ -1275,6 +1269,12 @@ class MainWindow(QtWidgets.QMainWindow):
                     float(getattr(recipe, "diameter_min_mm", 0.0)),
                     float(getattr(recipe, "diameter_max_mm", 99999.0)),
                 )
+        algo = (self.config.models.algo or "INP").upper()
+        if algo != "GLASS":
+            return (
+                float(getattr(self.config.models.inp, "diameter_min_mm", 0.0)),
+                float(getattr(self.config.models.inp, "diameter_max_mm", 99999.0)),
+            )
         return (
             float(getattr(self.config.models.glass, "diameter_min_mm", 0.0)),
             float(getattr(self.config.models.glass, "diameter_max_mm", 99999.0)),

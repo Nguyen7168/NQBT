@@ -83,11 +83,12 @@ class PlcConfig:
 
 
 @dataclass
-class GlassRecipeConfig:
+class RecipeConfig:
     code: int
-    path: str
+    inp_model_path: str
+    glass_model_path: str
     name: Optional[str] = None
-    glass_threshold: float = 0.5
+    threshold: float = 0.5
     crop_yolo_path: Optional[str] = None
     diameter_min_mm: float = 0.0
     diameter_max_mm: float = 99999.0
@@ -144,7 +145,7 @@ class ModelConfig:
     glass: GlassModelConfig = field(default_factory=lambda: GlassModelConfig(path=""))
     yolo: YoloModelConfig = field(default_factory=YoloModelConfig)
     active_recipe_code: Optional[int] = None
-    glass_recipes: List[GlassRecipeConfig] = field(default_factory=list)
+    recipes: List[RecipeConfig] = field(default_factory=list)
 
 
 @dataclass
@@ -364,23 +365,33 @@ def load_config(path: str | Path) -> AppConfig:
     else:
         raise ConfigError("Missing models.inp and models.glass sections")
     yolo = YoloModelConfig(**models_raw.get("yolo", {}))
-    glass_recipes = []
-    for entry in models_raw.get("glass_recipes", []):
-        if entry.get("glass_threshold") is None:
+    recipes = []
+    recipes_raw = models_raw.get("recipes", [])
+    if not isinstance(recipes_raw, list) or not recipes_raw:
+        raise ConfigError("Missing required models.recipes (list)")
+    for entry in recipes_raw:
+        if entry.get("threshold") is None:
             code = entry.get("code", "?")
-            raise ConfigError(f"Missing required glass_threshold for recipe code: {code}")
+            raise ConfigError(f"Missing required threshold for recipe code: {code}")
+        inp_model_path = str(entry.get("inp_model_path", "")).strip()
+        glass_model_path = str(entry.get("glass_model_path", "")).strip()
+        if not inp_model_path or not glass_model_path:
+            code = entry.get("code", "?")
+            raise ConfigError(f"Recipe code {code} must define both inp_model_path and glass_model_path")
         recipe_entry = dict(entry)
-        recipe_entry["glass_threshold"] = float(recipe_entry["glass_threshold"])
+        recipe_entry["threshold"] = float(recipe_entry["threshold"])
+        recipe_entry["inp_model_path"] = inp_model_path
+        recipe_entry["glass_model_path"] = glass_model_path
         recipe_entry["diameter_min_mm"] = float(recipe_entry.get("diameter_min_mm", 0.0))
         recipe_entry["diameter_max_mm"] = float(recipe_entry.get("diameter_max_mm", 99999.0))
-        glass_recipes.append(GlassRecipeConfig(**recipe_entry))
+        recipes.append(RecipeConfig(**recipe_entry))
     models = ModelConfig(
         algo=algo,
         inp=inp,
         glass=glass,
         yolo=yolo,
         active_recipe_code=(int(models_raw["active_recipe_code"]) if models_raw.get("active_recipe_code") is not None else None),
-        glass_recipes=glass_recipes,
+        recipes=recipes,
     )
 
     io_cfg = IOConfig(**raw.get("io", {}))

@@ -101,18 +101,20 @@ models:
     crop_device: "cuda:0"
     crop_classes: null
   active_recipe_code: 1
-  glass_recipes:  # each recipe must define its own glass_threshold
+  recipes:
     - code: 1
-      path: "app/models/23-233HA-E.pth"
+      inp_model_path: "app/models/anomaly.onnx"
+      glass_model_path: "app/models/23-233HA-E.pth"
       name: "23-233HA-E"
-      glass_threshold: 0.3
+      threshold: 0.3
       crop_yolo_path: "app/models/crop_yolo/23-233HA-E/best.pt"
       diameter_min_mm: 4.8
       diameter_max_mm: 5.4
     - code: 2
-      path: "app/models/gls_epoch_124_loss_0_1330_271img.pth"
+      inp_model_path: "app/models/anomaly.onnx"
+      glass_model_path: "app/models/gls_epoch_124_loss_0_1330_271img.pth"
       name: "ITEM_2"
-      glass_threshold: 0.5
+      threshold: 0.5
       crop_yolo_path: "app/models/crop_yolo/ITEM_2/best.pt"
       diameter_min_mm: 4.8
       diameter_max_mm: 5.4
