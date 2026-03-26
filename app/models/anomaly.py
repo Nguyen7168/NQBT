@@ -83,8 +83,15 @@ class _InpOnnxDetector(_BaseDetector):
         self._blur_sigma = float(config.inp_blur_sigma)
         self._max_ratio = float(config.inp_max_ratio)
         self._bin_thresh = float(config.inp_bin_thresh)
+        self._mode = str(getattr(config, "inp_mode", "default") or "default").strip().lower()
+        self._legacy_map_size = 256
 
     def infer(self, patches: Sequence[np.ndarray]) -> AnomalyResult:
+        if self._mode == "legacy_script":
+            return self._infer_legacy_script(patches)
+        return self._infer_default(patches)
+
+    def _infer_default(self, patches: Sequence[np.ndarray]) -> AnomalyResult:
         start = perf_counter()
         scores: List[float] = []
         maps: List[np.ndarray] = []
@@ -148,6 +155,96 @@ class _InpOnnxDetector(_BaseDetector):
         tensor = np.transpose(normalized, (2, 0, 1))
         return np.expand_dims(tensor, axis=0)
 
+    def _preprocess_legacy(self, patch: np.ndarray) -> np.ndarray:
+        h, w = self._input_hw
+        if patch.ndim == 2:
+            patch = cv2.cvtColor(patch, cv2.COLOR_GRAY2BGR)
+        elif patch.shape[2] == 1:
+            patch = cv2.cvtColor(patch, cv2.COLOR_GRAY2BGR)
+        rgb = cv2.cvtColor(patch, cv2.COLOR_BGR2RGB)
+        resized = cv2.resize(rgb, (w, h), interpolation=cv2.INTER_NEAREST)
+        normalized = resized.astype(np.float32) / 255.0
+        mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)
+        std = np.array([0.229, 0.224, 0.225], dtype=np.float32)
+        normalized = (normalized - mean) / std
+        tensor = np.transpose(normalized, (2, 0, 1))
+        return np.expand_dims(tensor, axis=0).astype(np.float32)
+
+    @staticmethod
+    def _legacy_resize_with_align_corners(image: np.ndarray, out_size: tuple[int, int]) -> np.ndarray:
+        in_height, in_width = image.shape[-2:]
+        out_height, out_width = out_size
+        x_indices = np.linspace(0, in_width - 1, out_width).astype(np.float32)
+        y_indices = np.linspace(0, in_height - 1, out_height).astype(np.float32)
+        map_x, map_y = np.meshgrid(x_indices, y_indices)
+        return cv2.remap(image, map_x, map_y, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REFLECT_101)
+
+    @staticmethod
+    def _legacy_resize_without_align_corners(image: np.ndarray, out_size: tuple[int, int]) -> np.ndarray:
+        batch_size, channels, _, _ = image.shape
+        out_height, out_width = out_size
+        resized_images = np.zeros((batch_size, channels, out_height, out_width), dtype=image.dtype)
+        for b in range(batch_size):
+            for c in range(channels):
+                resized_images[b, c] = cv2.resize(image[b, c], (out_width, out_height), interpolation=cv2.INTER_LINEAR)
+        return resized_images
+
+    @staticmethod
+    def _legacy_gaussian_kernel(kernel_size: int = 5, sigma: float = 4.0) -> np.ndarray:
+        x_coord = np.arange(kernel_size)
+        x_grid = np.repeat(x_coord, kernel_size).reshape(kernel_size, kernel_size)
+        y_grid = x_grid.T
+        xy_grid = np.stack([x_grid, y_grid], axis=-1).astype(np.float32)
+        mean = (kernel_size - 1) / 2.0
+        variance = sigma ** 2
+        kernel = (1.0 / (2.0 * np.pi * variance)) * np.exp(-np.sum((xy_grid - mean) ** 2.0, axis=-1) / (2.0 * variance))
+        kernel = kernel / np.sum(kernel)
+        return kernel.reshape(kernel_size, kernel_size)
+
+    def _infer_legacy_script(self, patches: Sequence[np.ndarray]) -> AnomalyResult:
+        start = perf_counter()
+        scores: List[float] = []
+        maps: List[np.ndarray] = []
+        out_size = self._input_hw
+        legacy_kernel = self._legacy_gaussian_kernel(kernel_size=self._blur_k, sigma=self._blur_sigma)
+        for patch in patches:
+            blob = self._preprocess_legacy(patch)
+            outputs = self._session.run(self._output_names, {self._input_name: blob})
+            if len(outputs) < 4:
+                raise RuntimeError("INP model must have >=4 outputs (encoder/decoder features)")
+            fs_list = outputs[0:2]
+            ft_list = outputs[2:4]
+            a_maps: List[np.ndarray] = []
+            for fs, ft in zip(fs_list, ft_list):
+                fs_arr = np.asarray(fs, dtype=np.float32)
+                ft_arr = np.asarray(ft, dtype=np.float32)
+                fs_norm = np.linalg.norm(fs_arr, axis=1, keepdims=True).clip(min=1e-8)
+                ft_norm = np.linalg.norm(ft_arr, axis=1, keepdims=True).clip(min=1e-8)
+                sim = np.sum(fs_arr * ft_arr, axis=1, keepdims=True) / (fs_norm * ft_norm)
+                a_map = np.round(1.0 - sim, decimals=4)
+                a_map = np.squeeze(a_map)
+                a_map = self._legacy_resize_with_align_corners(a_map, out_size)
+                a_maps.append(np.expand_dims(np.expand_dims(a_map, axis=0), axis=0))
+            anomaly_map = np.round(np.mean(np.concatenate(a_maps, axis=1), axis=1, keepdims=True), decimals=4)
+            anomaly_map = self._legacy_resize_without_align_corners(anomaly_map, (self._legacy_map_size, self._legacy_map_size))
+            amap_raw = anomaly_map[0, 0]
+            amap_raw = cv2.filter2D(amap_raw, -1, legacy_kernel, borderType=cv2.BORDER_CONSTANT)
+            amap_raw = np.round(amap_raw, decimals=4)
+            if self._max_ratio == 0:
+                score = float(np.max(amap_raw.ravel()))
+            else:
+                flat = amap_raw.ravel()
+                k = max(1, int(flat.shape[0] * self._max_ratio))
+                score = float(np.sort(flat)[-k:].mean())
+            # Keep app map contract as normalized float32 for UI saving/visualization.
+            a_min, a_max = float(np.min(amap_raw)), float(np.max(amap_raw))
+            norm = (amap_raw - a_min) / (a_max - a_min + 1e-8)
+            scores.append(score)
+            maps.append(norm.astype(np.float32))
+        elapsed = (perf_counter() - start) * 1000.0
+        LOGGER.debug("Anomaly (INP legacy_script) inference finished in %.2f ms", elapsed)
+        return AnomalyResult(scores=scores, inference_ms=elapsed, maps=maps)
+
 
 class _GlassTorchDetector:
     def __init__(self, config: GlassModelConfig):
@@ -185,11 +282,13 @@ class _GlassTorchDetector:
 
 class AnomalyDetector:
     def __init__(self, models: ModelConfig):
-        algo = (models.algo or "INP").upper()
+        algo = str(models.algo or "INP").strip().upper()
         if algo == "GLASS":
             self._impl = _GlassTorchDetector(models.glass)
-        else:
+        elif algo == "INP":
             self._impl = _InpOnnxDetector(models.inp)
+        else:
+            raise RuntimeError(f"Unsupported models.algo: {algo}")
 
     def infer(self, patches: Sequence[np.ndarray]) -> AnomalyResult:
         return self._impl.infer(patches)

@@ -20,6 +20,7 @@ if TYPE_CHECKING:
     from app.inspection.inference_pipeline import InferencePipeline, InferenceResultPayload
 
 _LENGTH_STRUCT = struct.Struct("!I")
+_VALID_ALGOS = {"INP", "GLASS"}
 
 
 def _recv_exact(sock: socket.socket, size: int) -> bytes:
@@ -49,7 +50,9 @@ def _recv_message(sock: socket.socket) -> Dict[str, Any]:
 
 
 def build_inference_runtime_state(config: AppConfig) -> Dict[str, Any]:
-    algo = (config.models.algo or "INP").upper()
+    algo = str(config.models.algo or "INP").strip().upper()
+    if algo not in _VALID_ALGOS:
+        algo = "INP"
     return {
         "algo": algo,
         "active_recipe_code": getattr(config.models, "active_recipe_code", None),
@@ -63,8 +66,13 @@ def build_inference_runtime_state(config: AppConfig) -> Dict[str, Any]:
 
 
 def _apply_runtime_state(config: AppConfig, state: Dict[str, Any]) -> None:
-    algo = str(state.get("algo", config.models.algo or "INP")).upper()
-    config.models.algo = algo
+    current_algo = str(config.models.algo or "INP").strip().upper()
+    requested_algo_raw = state.get("algo", current_algo)
+    requested_algo = str(requested_algo_raw).strip().upper() if requested_algo_raw is not None else current_algo
+    if requested_algo not in _VALID_ALGOS:
+        LOGGER.warning("Ignoring unsupported runtime algo '%s'; keeping %s", requested_algo_raw, current_algo)
+        requested_algo = current_algo
+    config.models.algo = requested_algo
     if state.get("active_recipe_code") is not None:
         config.models.active_recipe_code = int(state["active_recipe_code"])
     if state.get("inp_path"):
