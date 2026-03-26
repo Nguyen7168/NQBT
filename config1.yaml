@@ -64,7 +64,7 @@ plc:
     ack_clear_ms: 2000
 
 models:
-  algo: "GLASS"  # INP or GLASS
+  algo: "INP"  # INP or GLASS
   inp:
     path: app/models/anomaly.onnx
     provider: "cuda"
