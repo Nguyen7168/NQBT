@@ -69,11 +69,11 @@ models:
     path: app/models/anomaly.onnx
     provider: "cuda"
     input_size: 448
-    inp_mode: "default"  # "default" or "legacy_script"
+    inp_mode: "legacy_script"  # "default" or "legacy_script"
     inp_threshold: 0.15
     inp_blur_kernel: 5
     inp_blur_sigma: 4.0
-    inp_max_ratio: 0.0
+    inp_max_ratio: 0.02
     inp_bin_thresh: 0.2
     diameter_min_mm: 4.8
     diameter_max_mm: 5.4
