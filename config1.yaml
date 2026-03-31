@@ -122,6 +122,7 @@ models:
 
 io:
   save_images: false
+  save_only_ng: false
   output_dir: "runs/cam2/latest"
   raw_dir: "runs/cam2/raw"
   crops_dir: "runs/cam2/crops"

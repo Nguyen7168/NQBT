@@ -152,6 +152,7 @@ class ModelConfig:
 @dataclass
 class IOConfig:
     save_images: bool = True
+    save_only_ng: bool = False
     output_dir: str = "runs"
     raw_dir: str = "runs/raw"
     crops_dir: str = "runs/crops"

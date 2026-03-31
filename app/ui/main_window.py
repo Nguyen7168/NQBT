@@ -308,6 +308,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self.save_images_action.setChecked(self.config.io.save_images)
         options_menu.addAction(self.save_images_action)
 
+        self.save_only_ng_action = QtWidgets.QAction("Save only NG cycles", self)
+        self.save_only_ng_action.setCheckable(True)
+        self.save_only_ng_action.setChecked(getattr(self.config.io, "save_only_ng", False))
+        options_menu.addAction(self.save_only_ng_action)
+
         self.save_heatmap_action = QtWidgets.QAction("Save heatmaps (per patch)", self)
         self.save_heatmap_action.setCheckable(True)
         self.save_heatmap_action.setChecked(getattr(self.config.io, "save_heatmap", False))
@@ -367,6 +372,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.next_button.clicked.connect(self._next_image)
         select_output_action.triggered.connect(self._select_output_dir)
         self.save_images_action.toggled.connect(self._toggle_save_images)
+        self.save_only_ng_action.toggled.connect(self._toggle_save_only_ng)
         self.enable_yolo_action.toggled.connect(self._toggle_yolo)
         self.save_heatmap_action.toggled.connect(self._toggle_save_heatmap)
         self.save_binary_action.toggled.connect(self._toggle_save_binary)
@@ -654,7 +660,10 @@ class MainWindow(QtWidgets.QMainWindow):
         else:
             self.status_camera.setText("Camera: Ready")
 
-        if self.save_images_action.isChecked():
+        should_save = self.save_images_action.isChecked() and (
+            not getattr(self.config.io, "save_only_ng", False) or result.ng_total > 0
+        )
+        if should_save:
             QtCore.QMetaObject.invokeMethod(
                 self.save_worker,
                 "save",
@@ -1059,6 +1068,9 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _toggle_save_images(self, enabled: bool) -> None:
         self.config.io.save_images = enabled
+
+    def _toggle_save_only_ng(self, enabled: bool) -> None:
+        self.config.io.save_only_ng = enabled
 
     def _toggle_yolo(self, enabled: bool) -> None:
         self.config.models.yolo.enabled = enabled
