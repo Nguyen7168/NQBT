@@ -96,7 +96,7 @@ models:
     iou_thres: 0.45
     crop_enabled: true
     crop_path: "app/models/crop_yolo/23-233HA-E/best.pt"
-    crop_conf_thres: 0.5
+    crop_conf_thres: 0.4
     crop_iou_thres: 0.7
     crop_imgsz: 960
     crop_device: "cuda:0"
