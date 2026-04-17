@@ -107,7 +107,7 @@ models:
       inp_model_path: "app/models/anomaly.onnx"
       glass_model_path: "app/models/23-233HA-E.pth"
       name: "23-233HA-E"
-      threshold: 0.129
+      threshold: 0.06
       crop_yolo_path: "app/models/crop_yolo/23-233HA-E/best.pt"
       diameter_min_mm: 4.8
       diameter_max_mm: 5.4
@@ -177,5 +177,5 @@ mirror:
   min_peak_distance: 28
   max_ring_ratio: 0.48
   center_refine: 10
-  diameter_min: 100
+  diameter_min: 900
   diameter_max: 1000
