@@ -245,6 +245,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.tx_error_label = QtWidgets.QLabel("-")
         self.tx_ready_label = QtWidgets.QLabel("-")
         self.tx_run_label = QtWidgets.QLabel("-")
+        self.tx_camera_capture_done_label = QtWidgets.QLabel("-")
         self.tx_mode_current_label = QtWidgets.QLabel("-")
         self.tx_model_current_label = QtWidgets.QLabel("-")
         self.tx_mirror_result_label = QtWidgets.QLabel("-")
@@ -255,6 +256,10 @@ class MainWindow(QtWidgets.QMainWindow):
         tx_form.addRow(self._format_addr_label("Error", addr.error), self.tx_error_label)
         tx_form.addRow(self._format_addr_label("Ready", addr.ready), self.tx_ready_label)
         tx_form.addRow(self._format_addr_label("Run", addr.run), self.tx_run_label)
+        tx_form.addRow(
+            self._format_addr_label("Camera capture done", addr.camera_capture_done),
+            self.tx_camera_capture_done_label,
+        )
         tx_form.addRow(self._format_addr_label("Mode current word", addr.mode_current_word), self.tx_mode_current_label)
         tx_form.addRow(self._format_addr_label("Model current word", addr.model_current_word), self.tx_model_current_label)
         tx_form.addRow(self._format_addr_label("Mirror result word", addr.mirror_result_word), self.tx_mirror_result_label)
@@ -1021,6 +1026,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.tx_error_label.setText("ON" if self.plc.state.error else "OFF")
             self.tx_ready_label.setText("ON" if self.plc.state.ready else "OFF")
             self.tx_run_label.setText("ON" if self.plc.state.run else "OFF")
+            self.tx_camera_capture_done_label.setText("ON" if self.plc.state.camera_capture_done else "OFF")
             self.tx_mode_current_label.setText(self._read_plc_word_text(mode_current_addr))
             self.tx_model_current_label.setText(self._read_plc_word_text(model_current_addr))
             self.tx_mirror_result_label.setText(self._read_plc_word_text(mirror_result_addr))

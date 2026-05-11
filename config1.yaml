@@ -44,6 +44,7 @@ plc:
     mode_current_word: "DM1625"
     mirror_result_word: "EM1334"
     detected_count_word: "DM1636"
+    camera_capture_done: "EM7952"
   log_raw_request: false
   log_raw_response: false
   trigger_poll_interval_ms: 10

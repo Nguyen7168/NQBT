@@ -41,6 +41,7 @@ class PlcAddressConfig:
     mode_current_word: Optional[str] = None
     mirror_result_word: Optional[str] = None
     detected_count_word: Optional[str] = None
+    camera_capture_done: Optional[str] = None
 
 
 @dataclass
