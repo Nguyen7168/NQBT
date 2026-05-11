@@ -198,6 +198,8 @@ class InspectionWorker(QtCore.QObject):
             f"anomaly_model={timings.get('anomaly_model', 0.0):.1f}ms",
             f"plc_busy={timings.get('plc_busy', 0.0):.1f}ms",
             f"plc_run={timings.get('plc_run', 0.0):.1f}ms",
+            f"plc_camera_capture_done_clear={timings.get('plc_camera_capture_done_clear', 0.0):.1f}ms",
+            f"plc_camera_capture_done={timings.get('plc_camera_capture_done', 0.0):.1f}ms",
             f"plc_write_results={timings.get('plc_write_results', 0.0):.1f}ms",
             f"plc_write_detected_count={timings.get('plc_write_detected_count', 0.0):.1f}ms",
             f"plc_error={timings.get('plc_error', 0.0):.1f}ms",
@@ -317,10 +319,20 @@ class InspectionWorker(QtCore.QObject):
             try:
                 self.cycle_started.emit()
                 self._timed_call(timings, "plc_busy", lambda: self.plc.set_busy(True, reason="run_cycle"))
+                self._timed_call(
+                    timings,
+                    "plc_camera_capture_done_clear",
+                    lambda: self.plc.set_camera_capture_done(False),
+                )
                 self._ensure_camera_ready()
                 self._timed_call(timings, "plc_run", lambda: self.plc.set_run(True))
                 capture = self._timed_call(timings, "camera", self._capture_with_reconnect)
                 LOGGER.debug("Captured image with shape %s", capture.image.shape)
+                self._timed_call(
+                    timings,
+                    "plc_camera_capture_done",
+                    lambda: self.plc.set_camera_capture_done(True),
+                )
                 result = self._run_standard_cycle(capture.image, timings=timings)
                 self._timed_call(timings, "plc_done", lambda: self.plc.set_done(True))
                 result.cycle_elapsed_ms = (time.perf_counter() - cycle_start) * 1000.0

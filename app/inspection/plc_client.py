@@ -27,6 +27,7 @@ class PlcHandshakeState:
     error: bool = False
     ready: bool = False
     run: bool = False
+    camera_capture_done: bool = False
     last_cycle_started: Optional[float] = None
     last_done_set_ts: Optional[float] = None
     last_results: Optional[List[bool]] = None
@@ -494,8 +495,9 @@ class PlcController:
         self.set_busy(False, reason="recover_init")
         self.set_done(False)
         self.set_error(False)
-        self.set_ready(True, reason="recover_init")
         self.set_run(False)
+        self.set_camera_capture_done(False)
+        self.set_ready(True, reason="recover_init")
 
     def _ensure_reconnect_thread_no_lock(self) -> None:
         if not self.config.reconnect_enabled:
@@ -613,6 +615,15 @@ class PlcController:
             self._run_with_io_recovery(lambda: self.client.write_bit(self.config.addr.run, value))
             self.state.run = value
 
+    def set_camera_capture_done(self, value: bool) -> None:
+        addr = getattr(self.config.addr, "camera_capture_done", None)
+        if not addr:
+            self.state.camera_capture_done = False
+            return
+        with self._lock:
+            self._run_with_io_recovery(lambda: self.client.write_bit(addr, value))
+            self.state.camera_capture_done = value
+
     def write_results(self, results: Sequence[bool]) -> None:
         with self._lock:
             self._run_with_io_recovery(
@@ -673,6 +684,7 @@ class PlcController:
                 time.sleep(sleep_ms / 1000.0)
 
         self.set_done(False)
+        self.set_camera_capture_done(False)
         self.set_busy(False, reason="finalize")
         if self.state.error:
             self.set_error(False)
