@@ -121,8 +121,8 @@ models:
       diameter_max_mm: 5.4
 
 io:
-  save_images: false
-  save_only_ng: false
+  save_images: true
+  save_only_ng: true
   output_dir: "runs/cam2/latest"
   raw_dir: "runs/cam2/raw"
   crops_dir: "runs/cam2/crops"
