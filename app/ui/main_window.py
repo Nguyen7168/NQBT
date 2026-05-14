@@ -118,7 +118,7 @@ class MainWindow(QtWidgets.QMainWindow):
         main_layout.addWidget(right_tabs)
 
         inspection_tab = QtWidgets.QWidget()
-        right_tabs.addTab(inspection_tab, "Inspection")
+        right_tabs.addTab(inspection_tab, "Main")
         inspection_layout = QtWidgets.QVBoxLayout(inspection_tab)
 
         inspection_content = QtWidgets.QWidget()
@@ -159,7 +159,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         actions_group = QtWidgets.QGroupBox("Actions")
         controls_layout = QtWidgets.QGridLayout(actions_group)
-        self.capture_button = QtWidgets.QPushButton("Capture")
+        self.capture_button = QtWidgets.QPushButton("TRIGGER")
         self.load_model_button = QtWidgets.QPushButton("Load model")
         self.open_image_button = QtWidgets.QPushButton("Open image")
         self.run_anomaly_button = QtWidgets.QPushButton("Run anomaly")
@@ -225,6 +225,16 @@ class MainWindow(QtWidgets.QMainWindow):
         inspection_scroll.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
         inspection_scroll.setWidget(inspection_content)
         inspection_layout.addWidget(inspection_scroll)
+
+        custom_dialog_tab = QtWidgets.QWidget()
+        right_tabs.addTab(custom_dialog_tab, "Custom Dialog")
+        custom_dialog_layout = QtWidgets.QVBoxLayout(custom_dialog_tab)
+        diameter_group = QtWidgets.QGroupBox("Diameter Limits")
+        diameter_form = QtWidgets.QFormLayout(diameter_group)
+        diameter_form.addRow("diameter_min:", QtWidgets.QLabel("900"))
+        diameter_form.addRow("diameter_max:", QtWidgets.QLabel("1000"))
+        custom_dialog_layout.addWidget(diameter_group)
+        custom_dialog_layout.addStretch(1)
 
         plc_tab = QtWidgets.QWidget()
         right_tabs.addTab(plc_tab, "PLC Monitor")
@@ -402,6 +412,100 @@ class MainWindow(QtWidgets.QMainWindow):
         self.mode_apply_timer.setInterval(200)
         self.mode_apply_timer.timeout.connect(self._on_mode_apply_tick)
         self.mode_apply_timer.start()
+
+        self._apply_machine_style()
+
+    def _apply_machine_style(self) -> None:
+        """Apply a dark machine-style theme without changing workflow behavior."""
+        self.setStyleSheet(
+            """
+            QMainWindow, QWidget {
+                background-color: #000000;
+                color: #ffffff;
+                font-family: Helvetica, Arial, sans-serif;
+            }
+            QTabWidget::pane {
+                border: 1px solid #555555;
+                background-color: #000000;
+            }
+            QTabBar::tab {
+                background-color: #202020;
+                color: #ffffff;
+                border: 1px solid #555555;
+                padding: 8px 18px;
+                font-weight: bold;
+            }
+            QTabBar::tab:selected {
+                background-color: #3a3a3a;
+                border-bottom-color: #3a3a3a;
+            }
+            QGroupBox {
+                border: 1px solid #555555;
+                border-radius: 3px;
+                margin-top: 12px;
+                padding: 12px 8px 8px 8px;
+                font-weight: bold;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 4px;
+            }
+            QPushButton {
+                background-color: #1f1f1f;
+                color: #ffffff;
+                border: 1px solid #777777;
+                border-radius: 3px;
+                padding: 10px 14px;
+                font-weight: bold;
+                min-height: 34px;
+            }
+            QPushButton:hover {
+                background-color: #333333;
+            }
+            QPushButton:pressed {
+                background-color: #555555;
+            }
+            QPushButton:disabled {
+                color: #777777;
+                background-color: #151515;
+                border-color: #333333;
+            }
+            QTableWidget {
+                background-color: #101010;
+                alternate-background-color: #1a1a1a;
+                color: #ffffff;
+                gridline-color: #555555;
+                border: 1px solid #555555;
+            }
+            QHeaderView::section {
+                background-color: #2b2b2b;
+                color: #ffffff;
+                border: 1px solid #555555;
+                padding: 4px;
+                font-weight: bold;
+            }
+            QScrollArea {
+                border: none;
+            }
+            QMenuBar, QMenu {
+                background-color: #111111;
+                color: #ffffff;
+            }
+            QMenuBar::item:selected, QMenu::item:selected {
+                background-color: #333333;
+            }
+            QStatusBar {
+                background-color: #111111;
+                color: #ffffff;
+            }
+            QCheckBox {
+                color: #ffffff;
+                spacing: 8px;
+            }
+            """
+        )
+        self.image_label.setStyleSheet("background-color: #1e1e1e; border: 1px solid #777777;")
 
     def _on_mode_apply_tick(self) -> None:
         self._update_manual_mode_controls()
