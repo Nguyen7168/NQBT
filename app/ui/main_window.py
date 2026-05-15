@@ -190,7 +190,7 @@ class MainWindow(QtWidgets.QMainWindow):
         inspection_content_layout.addWidget(self.image_label, stretch=7)
 
         self.result_table = QtWidgets.QTableWidget(0, 4)
-        self.result_table.setHorizontalHeaderLabels(["Index", "Score", "Diameter (mm)", "Status"])
+        self.result_table.setHorizontalHeaderLabels(["Index", "Score", "D(mm)", "Status"])
         self.result_table.horizontalHeader().setSectionResizeMode(QtWidgets.QHeaderView.Stretch)
         self.result_table.verticalHeader().setVisible(False)
         self.result_table.verticalHeader().setSectionResizeMode(QtWidgets.QHeaderView.Fixed)
