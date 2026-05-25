@@ -1,0 +1,19 @@
+class_names:
+  - OK
+  - bac_truc_thieu_lieu
+  - bac_truc_loi_khac
+  - bac_truc_nut_me_vo
+  - bac_truc_dinh_di_vat
+  - bac_truc_tray_can
+  - bac_truc_bien_mau_ri_set
+  - bac_truc_sai_di_dang
+class_id_map:
+  OK: 0
+  01_thieu_lieu: 1
+  02_loi_khac: 2
+  03_nut_me_vo: 3
+  04_dinh_di_vat: 4
+  05_tray_can: 5
+  06_bien_mau_ri_set: 6
+  07_sai_di_dang: 7
+min_images_per_class_warning: 20
