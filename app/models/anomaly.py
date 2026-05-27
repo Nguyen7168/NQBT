@@ -13,8 +13,11 @@ import torch
 
 try:
     import onnxruntime as ort
-except Exception:  # pragma: no cover - optional dependency
+except Exception as exc:  # pragma: no cover - optional dependency
+    _ORT_IMPORT_ERROR = exc
     ort = None  # type: ignore
+else:
+    _ORT_IMPORT_ERROR = None
 
 from app.config_loader import ModelConfig, InpModelConfig, GlassModelConfig
 from app.models.glass_torch import GLASSInfer, preprocess_patch
@@ -32,7 +35,13 @@ class AnomalyResult:
 class _BaseDetector:
     def __init__(self, config):
         if ort is None:
-            raise RuntimeError("onnxruntime is not installed")
+            detail = f"{type(_ORT_IMPORT_ERROR).__name__}: {_ORT_IMPORT_ERROR}" if _ORT_IMPORT_ERROR else "unknown import error"
+            raise RuntimeError(
+                "onnxruntime is unavailable: failed to import/load runtime. "
+                f"Detail: {detail}. "
+                "If you installed onnxruntime/onnxruntime-gpu, verify you are running the same Python environment "
+                "and that required CUDA/cuDNN runtime DLLs are available for your ORT build."
+            )
         self._config = config
         providers = self._build_providers(config.provider)
         LOGGER.info("Loading anomaly model %s with providers %s", config.path, providers)
