@@ -572,13 +572,17 @@ class SaveWorker(QtCore.QObject):
             raw_name = filename_pattern.format(ts=ts_value, model=model_name, idx=0, cls="raw")
             raw_dir = ensure_dir(self.config.io.raw_dir)
             raw_path = raw_dir / raw_name
-            save_image(raw_path, result.raw_image)
+            save_ng_crops_only = bool(getattr(self.config.io, "save_ng_crops_only", False))
+            if not save_ng_crops_only:
+                save_image(raw_path, result.raw_image)
             save_image(overlay_path, result.overlay_image)
             with json_path.open("w", encoding="utf-8") as fh:
                 json.dump(result.to_json(), fh, indent=2)
             if self.config.io.save_crops:
                 crops_dir = ensure_dir(self.config.io.crops_dir)
                 for patch, status in zip(result.patches, result.statuses):
+                    if save_ng_crops_only and status != "NG":
+                        continue
                     crop_name = filename_pattern.format(
                         ts=ts_value,
                         model=model_name,
