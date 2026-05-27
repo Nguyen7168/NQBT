@@ -342,6 +342,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self.save_crops_action.setCheckable(True)
         self.save_crops_action.setChecked(getattr(self.config.io, "save_crops", False))
         options_menu.addAction(self.save_crops_action)
+        self.save_ng_crops_only_action = QtWidgets.QAction("Save NG crops only", self)
+        self.save_ng_crops_only_action.setCheckable(True)
+        self.save_ng_crops_only_action.setChecked(getattr(self.config.io, "save_ng_crops_only", False))
+        options_menu.addAction(self.save_ng_crops_only_action)
 
         self.enable_yolo_action = QtWidgets.QAction("Enable YOLO", self)
         self.enable_yolo_action.setCheckable(True)
@@ -392,6 +396,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.save_heatmap_action.toggled.connect(self._toggle_save_heatmap)
         self.save_binary_action.toggled.connect(self._toggle_save_binary)
         self.save_crops_action.toggled.connect(self._toggle_save_crops)
+        self.save_ng_crops_only_action.toggled.connect(self._toggle_save_ng_crops_only)
         self.plc_monitor_toggle.toggled.connect(self._toggle_plc_monitor)
         self.mode_run_action.triggered.connect(lambda: self._on_manual_mode_selected(OperatingMode.RUN))
         self.mode_sample_action.triggered.connect(lambda: self._on_manual_mode_selected(OperatingMode.SAMPLE))
@@ -1193,6 +1198,9 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _toggle_save_crops(self, enabled: bool) -> None:
         self.config.io.save_crops = enabled
+
+    def _toggle_save_ng_crops_only(self, enabled: bool) -> None:
+        self.config.io.save_ng_crops_only = enabled
 
     def _select_model(self) -> None:
         file_path, _ = QtWidgets.QFileDialog.getOpenFileName(
