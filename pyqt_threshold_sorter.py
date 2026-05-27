@@ -4,9 +4,11 @@ from __future__ import annotations
 import shutil
 import sys
 from pathlib import Path
-from typing import List
+from time import perf_counter
+from typing import List, Sequence
 
 import cv2
+import numpy as np
 from PyQt5 import QtWidgets
 
 from app.config_loader import ConfigError, load_config
@@ -31,6 +33,9 @@ class ThresholdSorterApp(QtWidgets.QWidget):
         self.threshold_spin.setDecimals(6)
         self.threshold_spin.setRange(-1e9, 1e9)
         self.threshold_spin.setValue(0.15)
+        self.batch_spin = QtWidgets.QSpinBox()
+        self.batch_spin.setRange(1, 4096)
+        self.batch_spin.setValue(16)
 
         self.algo_combo = QtWidgets.QComboBox()
         self.algo_combo.addItems(["Auto", "INP", "GLASS"])
@@ -48,6 +53,7 @@ class ThresholdSorterApp(QtWidgets.QWidget):
         layout.addLayout(self._row("Output Root", self.output_dir, self._btn("Browse", self.pick_output_dir)))
         layout.addLayout(self._algo_row())
         layout.addLayout(self._threshold_row())
+        layout.addLayout(self._batch_row())
         layout.addWidget(self.btn_run)
         layout.addWidget(self.log_box)
 
@@ -78,6 +84,12 @@ class ThresholdSorterApp(QtWidgets.QWidget):
         row = QtWidgets.QHBoxLayout()
         row.addWidget(QtWidgets.QLabel("Threshold (>= upper)"))
         row.addWidget(self.threshold_spin, 1)
+        return row
+
+    def _batch_row(self):
+        row = QtWidgets.QHBoxLayout()
+        row.addWidget(QtWidgets.QLabel("Batch Size"))
+        row.addWidget(self.batch_spin, 1)
         return row
 
     def log(self, text: str) -> None:
@@ -159,6 +171,7 @@ class ThresholdSorterApp(QtWidgets.QWidget):
             in_dir = Path(self.input_dir.text().strip())
             out_root = Path(self.output_dir.text().strip())
             threshold = float(self.threshold_spin.value())
+            batch_size = int(self.batch_spin.value())
 
             if not cfg_path or not Path(cfg_path).exists():
                 raise RuntimeError("Config path is invalid")
@@ -204,32 +217,48 @@ class ThresholdSorterApp(QtWidgets.QWidget):
             self.log(f"Algo: {algo}")
             self.log(f"Input images: {len(images)}")
             self.log(f"Threshold: {threshold:.6f}")
+            self.log(f"Batch size: {batch_size}")
 
-            for idx, img_path in enumerate(images, 1):
-                image = cv2.imread(str(img_path), cv2.IMREAD_COLOR)
+            total = len(images)
+            processed = 0
+            begin = perf_counter()
+            for start in range(0, total, batch_size):
+                batch_paths = images[start : start + batch_size]
+                valid_paths: List[Path] = []
+                batch_images: List = []
+                for img_path in batch_paths:
+                    image = cv2.imread(str(img_path), cv2.IMREAD_COLOR)
+                    if image is None:
+                        self.log(f"[WARN] Skip unreadable image: {img_path}")
+                        continue
+                    valid_paths.append(img_path)
+                    batch_images.append(image)
 
-                if image is None:
-                    self.log(f"[WARN] Skip unreadable image: {img_path}")
+                if not batch_images:
                     continue
 
-                result = detector.infer([image])
-                score = float(result.scores[0])
-                scores.append(score)
-
-                if score >= threshold:
-                    dst = upper_dir / img_path.name
-                    upper_count += 1
-                else:
-                    dst = under_dir / img_path.name
-                    under_count += 1
-
-                dst = self._unique_path(dst)
-                shutil.copy2(img_path, dst)
+                batch_scores = self._infer_scores_fast(detector, batch_images)
+                for img_path, score in zip(valid_paths, batch_scores):
+                    score = float(score)
+                    scores.append(score)
+                    if score >= threshold:
+                        dst = upper_dir / img_path.name
+                        upper_count += 1
+                    else:
+                        dst = under_dir / img_path.name
+                        under_count += 1
+                    dst = self._unique_path(dst)
+                    shutil.copy2(img_path, dst)
+                    processed += 1
 
                 self.log(
-                    f"[{idx}/{len(images)}] {img_path.name} "
-                    f"-> score={score:.6f} => {dst.parent.name}"
+                    f"[{processed}/{total}] batch={len(batch_images)} "
+                    f"last={valid_paths[-1].name}"
                 )
+
+            elapsed_s = perf_counter() - begin
+            if processed > 0:
+                self.log(f"Throughput: {processed / max(elapsed_s, 1e-8):.2f} img/s")
 
             self.log("---- DONE ----")
 
@@ -277,6 +306,73 @@ class ThresholdSorterApp(QtWidgets.QWidget):
                 return candidate
 
             i += 1
+
+    @staticmethod
+    def _infer_scores_fast(detector: AnomalyDetector, patches: Sequence) -> List[float]:
+        impl = getattr(detector, "_impl", None)
+        session = getattr(impl, "_session", None)
+        input_name = getattr(impl, "_input_name", None)
+        output_names = getattr(impl, "_output_names", None)
+        input_hw = getattr(impl, "_input_hw", None)
+        mode = str(getattr(impl, "_mode", "")).strip().lower()
+
+        can_use_local_batch = (
+            session is not None
+            and input_name
+            and output_names
+            and input_hw
+            and mode == "default"
+            and hasattr(impl, "_preprocess")
+        )
+        if not can_use_local_batch:
+            result = detector.infer(patches)
+            return [float(s) for s in result.scores]
+
+        try:
+            blobs = [impl._preprocess(patch)[0] for patch in patches]
+            batch_blob = np.stack(blobs, axis=0).astype(np.float32)
+            outputs = session.run(output_names, {input_name: batch_blob})
+            if len(outputs) < 4:
+                result = detector.infer(patches)
+                return [float(s) for s in result.scores]
+            fs_list = [np.asarray(outputs[0]), np.asarray(outputs[1])]
+            ft_list = [np.asarray(outputs[2]), np.asarray(outputs[3])]
+            h, w = input_hw
+            blur_k = int(getattr(impl, "_blur_k", 5))
+            blur_sigma = float(getattr(impl, "_blur_sigma", 4.0))
+            max_ratio = float(getattr(impl, "_max_ratio", 0.01))
+            scores: List[float] = []
+            for i in range(batch_blob.shape[0]):
+                a_maps = []
+                for fs, ft in zip(fs_list, ft_list):
+                    fs0, ft0 = fs[i], ft[i]
+                    c, fh, fw = fs0.shape
+                    fs_flat = fs0.reshape(c, -1).T
+                    ft_flat = ft0.reshape(c, -1).T
+                    eps = 1e-8
+                    fs_norm = np.linalg.norm(fs_flat, axis=1, keepdims=True).clip(min=eps)
+                    ft_norm = np.linalg.norm(ft_flat, axis=1, keepdims=True).clip(min=eps)
+                    sim = np.sum(fs_flat * ft_flat, axis=1, keepdims=True) / (fs_norm * ft_norm)
+                    dist = (1.0 - sim).reshape(fh, fw)
+                    dist_resized = cv2.resize(dist, (w, h), interpolation=cv2.INTER_LINEAR)
+                    a_maps.append(dist_resized[None, None, ...])
+                concat_maps = np.concatenate(a_maps, axis=1)
+                anomaly_map = np.mean(concat_maps, axis=1, keepdims=True)
+                amap = anomaly_map[0, 0]
+                amap = cv2.GaussianBlur(amap, (blur_k, blur_k), blur_sigma)
+                a_min, a_max = float(np.min(amap)), float(np.max(amap))
+                norm = (amap - a_min) / (a_max - a_min + 1e-8)
+                if max_ratio and max_ratio > 0.0:
+                    flat = np.sort(norm.ravel())
+                    k = max(1, int(flat.shape[0] * max_ratio))
+                    score = float(np.mean(flat[-k:]))
+                else:
+                    score = float(np.max(norm))
+                scores.append(score)
+            return scores
+        except Exception:
+            result = detector.infer(patches)
+            return [float(s) for s in result.scores]
 
 
 def main() -> int:
