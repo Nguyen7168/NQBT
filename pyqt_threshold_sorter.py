@@ -36,6 +36,8 @@ class ThresholdSorterApp(QtWidgets.QWidget):
         self.batch_spin = QtWidgets.QSpinBox()
         self.batch_spin.setRange(1, 4096)
         self.batch_spin.setValue(16)
+        self.gpu_strict_chk = QtWidgets.QCheckBox("INP GPU strict (no CPU fallback)")
+        self.gpu_strict_chk.setChecked(True)
 
         self.algo_combo = QtWidgets.QComboBox()
         self.algo_combo.addItems(["Auto", "INP", "GLASS"])
@@ -54,6 +56,7 @@ class ThresholdSorterApp(QtWidgets.QWidget):
         layout.addLayout(self._algo_row())
         layout.addLayout(self._threshold_row())
         layout.addLayout(self._batch_row())
+        layout.addWidget(self.gpu_strict_chk)
         layout.addWidget(self.btn_run)
         layout.addWidget(self.log_box)
 
@@ -172,6 +175,7 @@ class ThresholdSorterApp(QtWidgets.QWidget):
             out_root = Path(self.output_dir.text().strip())
             threshold = float(self.threshold_spin.value())
             batch_size = int(self.batch_spin.value())
+            gpu_strict = bool(self.gpu_strict_chk.isChecked())
 
             if not cfg_path or not Path(cfg_path).exists():
                 raise RuntimeError("Config path is invalid")
@@ -198,7 +202,7 @@ class ThresholdSorterApp(QtWidgets.QWidget):
             else:
                 raise RuntimeError(f"Unsupported algo: {algo}")
 
-            detector = AnomalyDetector(config.models)
+            detector = None if (algo == "INP" and gpu_strict) else AnomalyDetector(config.models)
 
             images = self._collect_images(in_dir)
             if not images:
@@ -218,6 +222,7 @@ class ThresholdSorterApp(QtWidgets.QWidget):
             self.log(f"Input images: {len(images)}")
             self.log(f"Threshold: {threshold:.6f}")
             self.log(f"Batch size: {batch_size}")
+            self.log(f"GPU strict (INP): {'ON' if gpu_strict else 'OFF'}")
 
             total = len(images)
             processed = 0
@@ -237,7 +242,11 @@ class ThresholdSorterApp(QtWidgets.QWidget):
                 if not batch_images:
                     continue
 
-                batch_scores = self._infer_scores_fast(detector, batch_images)
+                if algo == "INP" and gpu_strict:
+                    batch_scores = self._infer_scores_onnx_gpu_strict(config.models.inp, batch_images)
+                else:
+                    assert detector is not None
+                    batch_scores = self._infer_scores_fast(detector, batch_images)
                 for img_path, score in zip(valid_paths, batch_scores):
                     score = float(score)
                     scores.append(score)
@@ -373,6 +382,74 @@ class ThresholdSorterApp(QtWidgets.QWidget):
         except Exception:
             result = detector.infer(patches)
             return [float(s) for s in result.scores]
+
+    @staticmethod
+    def _infer_scores_onnx_gpu_strict(inp_cfg, patches: Sequence[np.ndarray]) -> List[float]:
+        try:
+            import onnxruntime as ort
+        except Exception as exc:
+            raise RuntimeError(f"onnxruntime import failed in GPU strict mode: {type(exc).__name__}: {exc}") from exc
+
+        providers = [("CUDAExecutionProvider", {"device_id": 0, "arena_extend_strategy": "kSameAsRequested"})]
+        session = ort.InferenceSession(inp_cfg.path, providers=providers)
+        active = session.get_providers()
+        if "CUDAExecutionProvider" not in active:
+            raise RuntimeError(f"GPU strict mode requires CUDAExecutionProvider, got providers={active}")
+        input_name = session.get_inputs()[0].name
+        output_names = [o.name for o in session.get_outputs()]
+        ishape = session.get_inputs()[0].shape
+        h = ishape[-2] if ishape and len(ishape) >= 4 and isinstance(ishape[-2], int) else int(inp_cfg.input_size)
+        w = ishape[-1] if ishape and len(ishape) >= 4 and isinstance(ishape[-1], int) else int(inp_cfg.input_size)
+
+        def _pre(patch: np.ndarray) -> np.ndarray:
+            resized = cv2.resize(patch, (w, h), interpolation=cv2.INTER_AREA)
+            if resized.ndim == 2:
+                resized = np.expand_dims(resized, axis=-1)
+            if resized.shape[2] == 1:
+                resized = np.repeat(resized, 3, axis=2)
+            normalized = resized.astype(np.float32) / 255.0
+            mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)
+            std = np.array([0.229, 0.224, 0.225], dtype=np.float32)
+            normalized = (normalized - mean) / std
+            return np.transpose(normalized, (2, 0, 1))
+
+        batch_blob = np.stack([_pre(p) for p in patches], axis=0).astype(np.float32)
+        outputs = session.run(output_names, {input_name: batch_blob})
+        if len(outputs) < 4:
+            raise RuntimeError("INP model must have >=4 outputs (encoder/decoder features)")
+        fs_list = [np.asarray(outputs[0]), np.asarray(outputs[1])]
+        ft_list = [np.asarray(outputs[2]), np.asarray(outputs[3])]
+        blur_k = int(inp_cfg.inp_blur_kernel)
+        if blur_k % 2 == 0:
+            blur_k += 1
+        blur_sigma = float(inp_cfg.inp_blur_sigma)
+        max_ratio = float(inp_cfg.inp_max_ratio)
+        scores: List[float] = []
+        for i in range(batch_blob.shape[0]):
+            a_maps = []
+            for fs, ft in zip(fs_list, ft_list):
+                fs0, ft0 = fs[i], ft[i]
+                c, fh, fw = fs0.shape
+                fs_flat = fs0.reshape(c, -1).T
+                ft_flat = ft0.reshape(c, -1).T
+                eps = 1e-8
+                sim = np.sum(fs_flat * ft_flat, axis=1, keepdims=True) / (
+                    np.linalg.norm(fs_flat, axis=1, keepdims=True).clip(min=eps)
+                    * np.linalg.norm(ft_flat, axis=1, keepdims=True).clip(min=eps)
+                )
+                dist = (1.0 - sim).reshape(fh, fw)
+                a_maps.append(cv2.resize(dist, (w, h), interpolation=cv2.INTER_LINEAR)[None, None, ...])
+            amap = np.mean(np.concatenate(a_maps, axis=1), axis=1, keepdims=True)[0, 0]
+            amap = cv2.GaussianBlur(amap, (blur_k, blur_k), blur_sigma)
+            a_min, a_max = float(np.min(amap)), float(np.max(amap))
+            norm = (amap - a_min) / (a_max - a_min + 1e-8)
+            if max_ratio > 0.0:
+                flat = np.sort(norm.ravel())
+                k = max(1, int(flat.shape[0] * max_ratio))
+                scores.append(float(np.mean(flat[-k:])))
+            else:
+                scores.append(float(np.max(norm)))
+        return scores
 
 
 def main() -> int:
