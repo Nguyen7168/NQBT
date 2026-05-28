@@ -13,8 +13,11 @@ import torch
 
 try:
     import onnxruntime as ort
-except Exception:  # pragma: no cover - optional dependency
+except Exception as exc:  # pragma: no cover - optional dependency
+    _ORT_IMPORT_ERROR = exc
     ort = None  # type: ignore
+else:
+    _ORT_IMPORT_ERROR = None
 
 from app.config_loader import ModelConfig, InpModelConfig, GlassModelConfig
 from app.models.glass_torch import GLASSInfer, preprocess_patch
@@ -32,13 +35,20 @@ class AnomalyResult:
 class _BaseDetector:
     def __init__(self, config):
         if ort is None:
-            raise RuntimeError("onnxruntime is not installed")
+            detail = f"{type(_ORT_IMPORT_ERROR).__name__}: {_ORT_IMPORT_ERROR}" if _ORT_IMPORT_ERROR else "unknown import error"
+            raise RuntimeError(
+                "onnxruntime is unavailable: failed to import/load runtime. "
+                f"Detail: {detail}. "
+                "If you installed onnxruntime/onnxruntime-gpu, verify you are running the same Python environment "
+                "and that required CUDA/cuDNN runtime DLLs are available for your ORT build."
+            )
         self._config = config
         providers = self._build_providers(config.provider)
         LOGGER.info("Loading anomaly model %s with providers %s", config.path, providers)
         session_options = ort.SessionOptions()
         session_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
         self._session = ort.InferenceSession(config.path, sess_options=session_options, providers=providers)
+        LOGGER.info("Anomaly session active providers: %s", self._session.get_providers())
         self._input_name = self._session.get_inputs()[0].name
         self._output_names = [o.name for o in self._session.get_outputs()]
 
@@ -95,21 +105,29 @@ class _InpOnnxDetector(_BaseDetector):
         start = perf_counter()
         scores: List[float] = []
         maps: List[np.ndarray] = []
-        for patch in patches:
-            blob = self._preprocess(patch)
-            # Expect multiple outputs (encoder/decoder features) for INP map computation
-            outputs = self._session.run(self._output_names, {self._input_name: blob})
-            if len(outputs) < 4:
-                raise RuntimeError("INP model must have >=4 outputs (encoder/decoder features)")
-            fs_list = outputs[0:2]
-            ft_list = outputs[2:4]
+        if not patches:
+            return AnomalyResult(scores=scores, inference_ms=0.0, maps=maps)
+        blobs = [self._preprocess(patch)[0] for patch in patches]
+        batch_blob = np.stack(blobs, axis=0).astype(np.float32)
+        LOGGER.debug(
+            "INP batched inference: batch=%d input_hw=%s input_tensor=%s",
+            batch_blob.shape[0],
+            self._input_hw,
+            tuple(batch_blob.shape),
+        )
+        # Expect multiple outputs (encoder/decoder features) for INP map computation
+        outputs = self._session.run(self._output_names, {self._input_name: batch_blob})
+        if len(outputs) < 4:
+            raise RuntimeError("INP model must have >=4 outputs (encoder/decoder features)")
+        fs_list = [np.asarray(outputs[0]), np.asarray(outputs[1])]
+        ft_list = [np.asarray(outputs[2]), np.asarray(outputs[3])]
+        h, w = self._input_hw
+        for i in range(batch_blob.shape[0]):
             a_maps = []
             for fs, ft in zip(fs_list, ft_list):
-                fs = np.asarray(fs)
-                ft = np.asarray(ft)
                 if fs.ndim != 4 or ft.ndim != 4:
                     raise RuntimeError("INP feature tensors must be 4D (B,C,H,W)")
-                fs0, ft0 = fs[0], ft[0]  # (C,H,W)
+                fs0, ft0 = fs[i], ft[i]  # (C,H,W)
                 C, H, W = fs0.shape
                 fs_flat = fs0.reshape(C, -1).T  # (H*W, C)
                 ft_flat = ft0.reshape(C, -1).T
@@ -118,7 +136,6 @@ class _InpOnnxDetector(_BaseDetector):
                 ft_norm = np.linalg.norm(ft_flat, axis=1, keepdims=True).clip(min=eps)
                 sim = np.sum(fs_flat * ft_flat, axis=1, keepdims=True) / (fs_norm * ft_norm)
                 dist = (1.0 - sim).reshape(H, W)
-                h, w = self._input_hw
                 dist_resized = cv2.resize(dist, (w, h), interpolation=cv2.INTER_LINEAR)
                 a_maps.append(dist_resized[None, None, ...])
             concat_maps = np.concatenate(a_maps, axis=1)  # (1,N,H,W)
