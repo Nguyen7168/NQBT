@@ -161,6 +161,7 @@ class IOConfig:
     save_heatmap: bool = False
     save_binary: bool = False
     save_crops: bool = False
+    save_ng_crops_only: bool = False
 
 
 @dataclass
