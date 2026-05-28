@@ -203,6 +203,9 @@ class ThresholdSorterApp(QtWidgets.QWidget):
                 raise RuntimeError(f"Unsupported algo: {algo}")
 
             detector = None if (algo == "INP" and gpu_strict) else AnomalyDetector(config.models)
+            strict_ctx = None
+            if algo == "INP" and gpu_strict:
+                strict_ctx = self._build_onnx_gpu_strict_ctx(config.models.inp)
 
             images = self._collect_images(in_dir)
             if not images:
@@ -243,7 +246,8 @@ class ThresholdSorterApp(QtWidgets.QWidget):
                     continue
 
                 if algo == "INP" and gpu_strict:
-                    batch_scores = self._infer_scores_onnx_gpu_strict(config.models.inp, batch_images)
+                    assert strict_ctx is not None
+                    batch_scores = self._infer_scores_onnx_gpu_strict_ctx(strict_ctx, batch_images)
                 else:
                     assert detector is not None
                     batch_scores = self._infer_scores_fast(detector, batch_images)
@@ -384,7 +388,7 @@ class ThresholdSorterApp(QtWidgets.QWidget):
             return [float(s) for s in result.scores]
 
     @staticmethod
-    def _infer_scores_onnx_gpu_strict(inp_cfg, patches: Sequence[np.ndarray]) -> List[float]:
+    def _build_onnx_gpu_strict_ctx(inp_cfg):
         try:
             import onnxruntime as ort
         except Exception as exc:
@@ -400,7 +404,49 @@ class ThresholdSorterApp(QtWidgets.QWidget):
         ishape = session.get_inputs()[0].shape
         h = ishape[-2] if ishape and len(ishape) >= 4 and isinstance(ishape[-2], int) else int(inp_cfg.input_size)
         w = ishape[-1] if ishape and len(ishape) >= 4 and isinstance(ishape[-1], int) else int(inp_cfg.input_size)
+        return {
+            "session": session,
+            "input_name": input_name,
+            "output_names": output_names,
+            "h": int(h),
+            "w": int(w),
+            "inp_cfg": inp_cfg,
+            "mode": str(getattr(inp_cfg, "inp_mode", "default") or "default").strip().lower(),
+        }
 
+    @staticmethod
+    def _infer_scores_onnx_gpu_strict_ctx(ctx, patches: Sequence[np.ndarray]) -> List[float]:
+        session = ctx["session"]
+        input_name = ctx["input_name"]
+        output_names = ctx["output_names"]
+        h = int(ctx["h"])
+        w = int(ctx["w"])
+        inp_cfg = ctx["inp_cfg"]
+        mode = str(ctx["mode"])
+
+        if mode == "legacy_script":
+            return ThresholdSorterApp._infer_scores_onnx_gpu_strict_legacy(
+                session=session,
+                input_name=input_name,
+                output_names=output_names,
+                h=h,
+                w=w,
+                inp_cfg=inp_cfg,
+                patches=patches,
+            )
+        return ThresholdSorterApp._infer_scores_onnx_gpu_strict_default(
+            session=session,
+            input_name=input_name,
+            output_names=output_names,
+            h=h,
+            w=w,
+            inp_cfg=inp_cfg,
+            patches=patches,
+        )
+
+    @staticmethod
+    def _infer_scores_onnx_gpu_strict_default(*, session, input_name, output_names, h: int, w: int, inp_cfg, patches: Sequence[np.ndarray]) -> List[float]:
+        
         def _pre(patch: np.ndarray) -> np.ndarray:
             resized = cv2.resize(patch, (w, h), interpolation=cv2.INTER_AREA)
             if resized.ndim == 2:
@@ -449,6 +495,83 @@ class ThresholdSorterApp(QtWidgets.QWidget):
                 scores.append(float(np.mean(flat[-k:])))
             else:
                 scores.append(float(np.max(norm)))
+        return scores
+
+    @staticmethod
+    def _infer_scores_onnx_gpu_strict_legacy(*, session, input_name, output_names, h: int, w: int, inp_cfg, patches: Sequence[np.ndarray]) -> List[float]:
+        def _pre_legacy(patch: np.ndarray) -> np.ndarray:
+            bgr = patch
+            if bgr.ndim == 2:
+                bgr = cv2.cvtColor(bgr, cv2.COLOR_GRAY2BGR)
+            elif bgr.shape[2] == 1:
+                bgr = cv2.cvtColor(bgr, cv2.COLOR_GRAY2BGR)
+            rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+            resized = cv2.resize(rgb, (w, h), interpolation=cv2.INTER_NEAREST)
+            normalized = resized.astype(np.float32) / 255.0
+            mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)
+            std = np.array([0.229, 0.224, 0.225], dtype=np.float32)
+            normalized = (normalized - mean) / std
+            return np.transpose(normalized, (2, 0, 1))
+
+        blur_k = int(inp_cfg.inp_blur_kernel)
+        if blur_k % 2 == 0:
+            blur_k += 1
+        blur_sigma = float(inp_cfg.inp_blur_sigma)
+        max_ratio = float(inp_cfg.inp_max_ratio)
+        out_size = (h, w)
+        legacy_map_size = 256
+        # kernel equivalent to app.models.anomaly _legacy_gaussian_kernel
+        x_coord = np.arange(blur_k)
+        x_grid = np.repeat(x_coord, blur_k).reshape(blur_k, blur_k)
+        y_grid = x_grid.T
+        xy_grid = np.stack([x_grid, y_grid], axis=-1).astype(np.float32)
+        mean_xy = (blur_k - 1) / 2.0
+        variance = blur_sigma ** 2
+        legacy_kernel = (1.0 / (2.0 * np.pi * variance)) * np.exp(
+            -np.sum((xy_grid - mean_xy) ** 2.0, axis=-1) / (2.0 * variance)
+        )
+        legacy_kernel = legacy_kernel / np.sum(legacy_kernel)
+
+        batch_blob = np.stack([_pre_legacy(p) for p in patches], axis=0).astype(np.float32)
+        outputs = session.run(output_names, {input_name: batch_blob})
+        if len(outputs) < 4:
+            raise RuntimeError("INP model must have >=4 outputs (encoder/decoder features)")
+        fs_list = [np.asarray(outputs[0], dtype=np.float32), np.asarray(outputs[1], dtype=np.float32)]
+        ft_list = [np.asarray(outputs[2], dtype=np.float32), np.asarray(outputs[3], dtype=np.float32)]
+        scores: List[float] = []
+        for i in range(batch_blob.shape[0]):
+            a_maps = []
+            for fs, ft in zip(fs_list, ft_list):
+                fs_arr = fs[i : i + 1]
+                ft_arr = ft[i : i + 1]
+                fs_norm = np.linalg.norm(fs_arr, axis=1, keepdims=True).clip(min=1e-8)
+                ft_norm = np.linalg.norm(ft_arr, axis=1, keepdims=True).clip(min=1e-8)
+                sim = np.sum(fs_arr * ft_arr, axis=1, keepdims=True) / (fs_norm * ft_norm)
+                a_map = np.round(1.0 - sim, decimals=4)
+                a_map = np.squeeze(a_map)
+                in_h, in_w = a_map.shape[-2:]
+                x_indices = np.linspace(0, in_w - 1, out_size[1]).astype(np.float32)
+                y_indices = np.linspace(0, in_h - 1, out_size[0]).astype(np.float32)
+                map_x, map_y = np.meshgrid(x_indices, y_indices)
+                a_map = cv2.remap(
+                    a_map, map_x, map_y, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REFLECT_101
+                )
+                a_maps.append(np.expand_dims(np.expand_dims(a_map, axis=0), axis=0))
+            anomaly_map = np.round(np.mean(np.concatenate(a_maps, axis=1), axis=1, keepdims=True), decimals=4)
+            resized_images = np.zeros((1, 1, legacy_map_size, legacy_map_size), dtype=anomaly_map.dtype)
+            resized_images[0, 0] = cv2.resize(
+                anomaly_map[0, 0], (legacy_map_size, legacy_map_size), interpolation=cv2.INTER_LINEAR
+            )
+            amap_raw = resized_images[0, 0]
+            amap_raw = cv2.filter2D(amap_raw, -1, legacy_kernel, borderType=cv2.BORDER_CONSTANT)
+            amap_raw = np.round(amap_raw, decimals=4)
+            if max_ratio == 0:
+                score = float(np.max(amap_raw.ravel()))
+            else:
+                flat = amap_raw.ravel()
+                k = max(1, int(flat.shape[0] * max_ratio))
+                score = float(np.sort(flat)[-k:].mean())
+            scores.append(score)
         return scores
 
 
