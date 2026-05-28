@@ -163,7 +163,7 @@ class InpOnnxViewer(QtWidgets.QWidget):
             cfg.models.algo = "INP"
             cfg.models.inp.path = self.model_path.text().strip()
             cfg.models.inp.inp_mode = "default"
-            self.threshold.setValue(float(cfg.models.inp.threshold))
+            self.threshold.setValue(float(cfg.models.inp.inp_threshold))
             self.bin_threshold.setValue(float(cfg.models.inp.inp_bin_thresh))
             detector = AnomalyDetector(cfg.models)
 
@@ -232,4 +232,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
