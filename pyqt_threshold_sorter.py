@@ -25,17 +25,17 @@ class ThresholdSorterApp(QtWidgets.QWidget):
         self.resize(760, 460)
 
         self.config_path = QtWidgets.QLineEdit("config.yaml")
-        self.model_path = QtWidgets.QLineEdit()
-        self.input_dir = QtWidgets.QLineEdit()
-        self.output_dir = QtWidgets.QLineEdit()
+        self.model_path = QtWidgets.QLineEdit("D:/DataMea14/NGUYEN/INP/ckpt_epoch_0214.onnx")
+        self.input_dir = QtWidgets.QLineEdit("D:/DataMea14/NGUYEN/INP/CROP/CROP_OUT")
+        self.output_dir = QtWidgets.QLineEdit("D:/DataMea14/NGUYEN/INP/CROP/CROP_OUT")
 
         self.threshold_spin = QtWidgets.QDoubleSpinBox()
         self.threshold_spin.setDecimals(6)
         self.threshold_spin.setRange(-1e9, 1e9)
-        self.threshold_spin.setValue(0.15)
+        self.threshold_spin.setValue(0.062)
         self.batch_spin = QtWidgets.QSpinBox()
         self.batch_spin.setRange(1, 4096)
-        self.batch_spin.setValue(16)
+        self.batch_spin.setValue(48)
         self.gpu_strict_chk = QtWidgets.QCheckBox("INP GPU strict (no CPU fallback)")
         self.gpu_strict_chk.setChecked(True)
 
