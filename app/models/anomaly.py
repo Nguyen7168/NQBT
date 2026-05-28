@@ -48,6 +48,7 @@ class _BaseDetector:
         session_options = ort.SessionOptions()
         session_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
         self._session = ort.InferenceSession(config.path, sess_options=session_options, providers=providers)
+        LOGGER.info("Anomaly session active providers: %s", self._session.get_providers())
         self._input_name = self._session.get_inputs()[0].name
         self._output_names = [o.name for o in self._session.get_outputs()]
 
@@ -108,6 +109,12 @@ class _InpOnnxDetector(_BaseDetector):
             return AnomalyResult(scores=scores, inference_ms=0.0, maps=maps)
         blobs = [self._preprocess(patch)[0] for patch in patches]
         batch_blob = np.stack(blobs, axis=0).astype(np.float32)
+        LOGGER.debug(
+            "INP batched inference: batch=%d input_hw=%s input_tensor=%s",
+            batch_blob.shape[0],
+            self._input_hw,
+            tuple(batch_blob.shape),
+        )
         # Expect multiple outputs (encoder/decoder features) for INP map computation
         outputs = self._session.run(self._output_names, {self._input_name: batch_blob})
         if len(outputs) < 4:
