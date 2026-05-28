@@ -12,7 +12,6 @@ import numpy as np
 from PyQt5 import QtWidgets
 
 from app.config_loader import ConfigError, load_config
-from app.models.anomaly import AnomalyDetector
 
 IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff", ".webp"}
 
@@ -202,7 +201,10 @@ class ThresholdSorterApp(QtWidgets.QWidget):
             else:
                 raise RuntimeError(f"Unsupported algo: {algo}")
 
-            detector = None if (algo == "INP" and gpu_strict) else AnomalyDetector(config.models)
+            detector = None
+            if not (algo == "INP" and gpu_strict):
+                from app.models.anomaly import AnomalyDetector  # lazy import to avoid torch/ORT DLL conflicts in strict mode
+                detector = AnomalyDetector(config.models)
             strict_ctx = None
             if algo == "INP" and gpu_strict:
                 strict_ctx = self._build_onnx_gpu_strict_ctx(config.models.inp)
@@ -321,7 +323,7 @@ class ThresholdSorterApp(QtWidgets.QWidget):
             i += 1
 
     @staticmethod
-    def _infer_scores_fast(detector: AnomalyDetector, patches: Sequence) -> List[float]:
+    def _infer_scores_fast(detector, patches: Sequence) -> List[float]:
         impl = getattr(detector, "_impl", None)
         session = getattr(impl, "_session", None)
         input_name = getattr(impl, "_input_name", None)
