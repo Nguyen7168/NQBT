@@ -131,6 +131,7 @@ io:
   save_heatmap: false
   save_binary: false
   save_crops: false
+  save_ng_crops_only: true
 
 layout:
   count: 28
