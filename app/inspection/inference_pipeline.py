@@ -201,6 +201,14 @@ class InferencePipeline:
                 anomaly = self._timed_call(timings, "anomaly", lambda: self.anomaly.infer([p.image for p in patches]))
             else:
                 anomaly = self.anomaly.infer([p.image for p in patches])
+        LOGGER.info(
+            "Inference cycle summary: algo=%s detected=%s expected=%s patches=%d anomaly_ms=%.2f",
+            (self.config.models.algo or "INP").upper(),
+            detected,
+            expected,
+            len(patches),
+            float(anomaly.inference_ms) if anomaly is not None else 0.0,
+        )
 
         algo = (self.config.models.algo or "INP").upper()
         threshold = float(self._active_recipe_threshold)
