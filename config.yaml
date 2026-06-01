@@ -171,17 +171,17 @@ layout:
 custom_dialog:
   limits:
     - feature: "Iris 1"
-      lower: 235
-      upper: 245
+      lower: 245
+      upper: 255
     - feature: "Iris 2"
-      lower: 235
-      upper: 245
+      lower: 245
+      upper: 255
     - feature: "Iris 3"
-      lower: 235
-      upper: 245
+      lower: 245
+      upper: 255
     - feature: "Iris 4"
-      lower: 235
-      upper: 245
+      lower: 245
+      upper: 255
     - feature: "Focus 1"
       lower: 45
       upper: null
@@ -195,14 +195,14 @@ custom_dialog:
       lower: 45
       upper: null
     - feature: "Center X"
+      lower: 2028
+      upper: 2068
+    - feature: "Center Y"
+      lower: 1490
+      upper: 1510
+    - feature: "Circle Radius"
       lower: 950
       upper: 970
-    - feature: "Center Y"
-      lower: 530
-      upper: 550
-    - feature: "Circle Radius"
-      lower: 327
-      upper: 357
 
 sample_image_root: "samples"
 mirror:
