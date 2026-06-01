@@ -168,6 +168,42 @@ layout:
   overlay_index_scale_divisor: 180.0 # used when mode=auto
 
 
+custom_dialog:
+  limits:
+    - feature: "Iris 1"
+      lower: 235
+      upper: 245
+    - feature: "Iris 2"
+      lower: 235
+      upper: 245
+    - feature: "Iris 3"
+      lower: 235
+      upper: 245
+    - feature: "Iris 4"
+      lower: 235
+      upper: 245
+    - feature: "Focus 1"
+      lower: 45
+      upper: null
+    - feature: "Focus 2"
+      lower: 45
+      upper: null
+    - feature: "Focus 3"
+      lower: 45
+      upper: null
+    - feature: "Focus 4"
+      lower: 45
+      upper: null
+    - feature: "Center X"
+      lower: 950
+      upper: 970
+    - feature: "Center Y"
+      lower: 530
+      upper: 550
+    - feature: "Circle Radius"
+      lower: 327
+      upper: 357
+
 sample_image_root: "samples"
 mirror:
   target_ring: 10

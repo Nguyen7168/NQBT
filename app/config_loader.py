@@ -242,6 +242,18 @@ class MirrorConfig:
 
 
 @dataclass
+class CustomDialogLimitConfig:
+    feature: str
+    lower: Optional[float] = None
+    upper: Optional[float] = None
+
+
+@dataclass
+class CustomDialogConfig:
+    limits: List[CustomDialogLimitConfig] = field(default_factory=list)
+
+
+@dataclass
 class AppConfig:
     camera: CameraConfig
     plc: PlcConfig
@@ -251,6 +263,7 @@ class AppConfig:
     inference_service: InferenceServiceConfig = field(default_factory=InferenceServiceConfig)
     measurement: MeasurementConfig = field(default_factory=MeasurementConfig)
     mirror: MirrorConfig = field(default_factory=MirrorConfig)
+    custom_dialog: CustomDialogConfig = field(default_factory=CustomDialogConfig)
     app_title: Optional[str] = None
     window: Optional[WindowConfig] = None
     sample_image_root: str = "samples"
@@ -275,6 +288,36 @@ def _require(mapping: Dict[str, Any], key: str) -> Any:
     if key not in mapping:
         raise ConfigError(f"Missing required configuration key: {key}")
     return mapping[key]
+
+
+def _optional_float(value: Any) -> Optional[float]:
+    if value is None:
+        return None
+    if isinstance(value, str) and value.strip() in {"", "-"}:
+        return None
+    return float(value)
+
+
+def _load_custom_dialog_config(raw: Dict[str, Any]) -> CustomDialogConfig:
+    dialog_raw = raw.get("custom_dialog", {})
+    if not isinstance(dialog_raw, dict):
+        return CustomDialogConfig()
+
+    limits = []
+    for entry in dialog_raw.get("limits", []):
+        if not isinstance(entry, dict):
+            continue
+        feature = str(entry.get("feature", "")).strip()
+        if not feature:
+            continue
+        limits.append(
+            CustomDialogLimitConfig(
+                feature=feature,
+                lower=_optional_float(entry.get("lower")),
+                upper=_optional_float(entry.get("upper")),
+            )
+        )
+    return CustomDialogConfig(limits=limits)
 
 
 def load_config(path: str | Path) -> AppConfig:
@@ -414,6 +457,7 @@ def load_config(path: str | Path) -> AppConfig:
     measurement_cfg = MeasurementConfig(**measurement_raw) if isinstance(measurement_raw, dict) else MeasurementConfig()
     mirror_raw = raw.get("mirror", {})
     mirror_cfg = MirrorConfig(**mirror_raw) if isinstance(mirror_raw, dict) else MirrorConfig()
+    custom_dialog_cfg = _load_custom_dialog_config(raw)
 
     return AppConfig(
         camera=camera,
@@ -424,6 +468,7 @@ def load_config(path: str | Path) -> AppConfig:
         inference_service=inference_service_cfg,
         measurement=measurement_cfg,
         mirror=mirror_cfg,
+        custom_dialog=custom_dialog_cfg,
         app_title=(str(raw.get("app_title")).strip() if raw.get("app_title") is not None else None),
         window=window_cfg,
         sample_image_root=str(raw.get("sample_image_root", "samples")),
