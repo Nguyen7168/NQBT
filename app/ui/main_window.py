@@ -229,11 +229,7 @@ class MainWindow(QtWidgets.QMainWindow):
         custom_dialog_tab = QtWidgets.QWidget()
         right_tabs.addTab(custom_dialog_tab, "Custom Dialog")
         custom_dialog_layout = QtWidgets.QVBoxLayout(custom_dialog_tab)
-        diameter_group = QtWidgets.QGroupBox("Diameter Limits")
-        diameter_form = QtWidgets.QFormLayout(diameter_group)
-        diameter_form.addRow("diameter_min:", QtWidgets.QLabel("900"))
-        diameter_form.addRow("diameter_max:", QtWidgets.QLabel("1000"))
-        custom_dialog_layout.addWidget(diameter_group)
+        custom_dialog_layout.addWidget(self._build_custom_dialog_limits_table())
         custom_dialog_layout.addStretch(1)
 
         plc_tab = QtWidgets.QWidget()
@@ -1175,6 +1171,45 @@ class MainWindow(QtWidgets.QMainWindow):
     def _set_table_row_heights(self, table: QtWidgets.QTableWidget) -> None:
         for row in range(table.rowCount()):
             table.setRowHeight(row, self._table_row_height)
+
+    def _build_custom_dialog_limits_table(self) -> QtWidgets.QTableWidget:
+        limits = list(getattr(getattr(self.config, "custom_dialog", None), "limits", []) or [])
+        table = QtWidgets.QTableWidget(len(limits), 3)
+        table.setHorizontalHeaderLabels(["Feature", "Gioi han duoi", "Gioi han tren"])
+        table.verticalHeader().setVisible(False)
+        table.verticalHeader().setSectionResizeMode(QtWidgets.QHeaderView.Fixed)
+        table.horizontalHeader().setSectionResizeMode(QtWidgets.QHeaderView.Stretch)
+        table.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
+        table.setSelectionMode(QtWidgets.QAbstractItemView.NoSelection)
+        table.setFocusPolicy(QtCore.Qt.NoFocus)
+        table.setAlternatingRowColors(True)
+        table.setWordWrap(False)
+        table.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
+
+        for row, limit in enumerate(limits):
+            values = (
+                str(getattr(limit, "feature", "")),
+                self._format_custom_limit_value(getattr(limit, "lower", None)),
+                self._format_custom_limit_value(getattr(limit, "upper", None)),
+            )
+            for col, value in enumerate(values):
+                item = QtWidgets.QTableWidgetItem(value)
+                alignment = QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter if col == 0 else QtCore.Qt.AlignCenter
+                item.setTextAlignment(alignment)
+                table.setItem(row, col, item)
+
+        self._set_table_row_heights(table)
+        table_height = table.horizontalHeader().height() + (self._table_row_height * max(1, len(limits))) + 4
+        table.setFixedHeight(table_height)
+        return table
+
+    @staticmethod
+    def _format_custom_limit_value(value: Optional[float]) -> str:
+        if value is None:
+            return "-"
+        if float(value).is_integer():
+            return str(int(value))
+        return f"{float(value):.3f}".rstrip("0").rstrip(".")
 
     def _select_output_dir(self) -> None:
         directory = QtWidgets.QFileDialog.getExistingDirectory(self, "Select output folder", self.config.io.output_dir)
