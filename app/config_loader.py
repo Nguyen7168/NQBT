@@ -230,6 +230,11 @@ class WindowConfig:
 
 
 @dataclass
+class UIConfig:
+    show_notch_column: bool = True
+
+
+@dataclass
 class InferenceServiceConfig:
     enabled: bool = False
     host: str = "127.0.0.1"
@@ -280,6 +285,7 @@ class AppConfig:
     measurement: MeasurementConfig = field(default_factory=MeasurementConfig)
     mirror: MirrorConfig = field(default_factory=MirrorConfig)
     custom_dialog: CustomDialogConfig = field(default_factory=CustomDialogConfig)
+    ui: UIConfig = field(default_factory=UIConfig)
     app_title: Optional[str] = None
     window: Optional[WindowConfig] = None
     sample_image_root: str = "samples"
@@ -479,6 +485,8 @@ def load_config(path: str | Path) -> AppConfig:
     mirror_raw = raw.get("mirror", {})
     mirror_cfg = MirrorConfig(**mirror_raw) if isinstance(mirror_raw, dict) else MirrorConfig()
     custom_dialog_cfg = _load_custom_dialog_config(raw)
+    ui_raw = raw.get("ui", {})
+    ui_cfg = UIConfig(**ui_raw) if isinstance(ui_raw, dict) else UIConfig()
 
     return AppConfig(
         camera=camera,
@@ -490,6 +498,7 @@ def load_config(path: str | Path) -> AppConfig:
         measurement=measurement_cfg,
         mirror=mirror_cfg,
         custom_dialog=custom_dialog_cfg,
+        ui=ui_cfg,
         app_title=(str(raw.get("app_title")).strip() if raw.get("app_title") is not None else None),
         window=window_cfg,
         sample_image_root=str(raw.get("sample_image_root", "samples")),
