@@ -189,8 +189,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.image_label.setStyleSheet("background-color: #1e1e1e; border: 1px solid #555;")
         inspection_content_layout.addWidget(self.image_label, stretch=7)
 
-        self.result_table = QtWidgets.QTableWidget(0, 4)
-        self.result_table.setHorizontalHeaderLabels(["Index", "Score", "D(mm)", "Status"])
+        self.result_table = QtWidgets.QTableWidget(0, 5)
+        self.result_table.setHorizontalHeaderLabels(["Index", "Score", "D(mm)", "Ngấn", "Status"])
         self.result_table.horizontalHeader().setSectionResizeMode(QtWidgets.QHeaderView.Stretch)
         self.result_table.verticalHeader().setVisible(False)
         self.result_table.verticalHeader().setSectionResizeMode(QtWidgets.QHeaderView.Fixed)
@@ -213,7 +213,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         diameter_min_mm, diameter_max_mm = self._current_diameter_thresholds()
         self.applied_threshold_label = QtWidgets.QLabel(
-            f"Applied thresholds: score<={self._current_threshold():.3f} | diameter=[{diameter_min_mm:.3f}, {diameter_max_mm:.3f}] mm"
+            f"Applied thresholds: score<={self._current_threshold():.3f} | diameter=[{diameter_min_mm:.3f}, {diameter_max_mm:.3f}] mm{self._current_notch_text()}"
         )
         self.applied_threshold_label.setAlignment(QtCore.Qt.AlignRight)
         inspection_content_layout.addWidget(self.applied_threshold_label, stretch=0)
@@ -748,13 +748,21 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.result_table.setRowCount(len(result.patches))
         self._set_table_row_heights(self.result_table)
-        for row, (patch, score, diameter_mm, status) in enumerate(zip(result.patches, result.anomaly_scores, result.diameters_mm, result.statuses)):
+        for row, (patch, score, diameter_mm, notch_count, status) in enumerate(
+            zip(result.patches, result.anomaly_scores, result.diameters_mm, result.notch_counts, result.statuses)
+        ):
             self.result_table.setItem(row, 0, QtWidgets.QTableWidgetItem(str(patch.index)))
             self.result_table.setItem(row, 1, QtWidgets.QTableWidgetItem(f"{score:.3f}"))
             self.result_table.setItem(row, 2, QtWidgets.QTableWidgetItem("-" if diameter_mm is None else f"{diameter_mm:.3f}"))
-            self.result_table.setItem(row, 3, QtWidgets.QTableWidgetItem(status))
+            self.result_table.setItem(row, 3, QtWidgets.QTableWidgetItem("-" if notch_count is None else str(int(notch_count))))
+            self.result_table.setItem(row, 4, QtWidgets.QTableWidgetItem(status))
+        notch_text = (
+            f" | notch=[{result.notch_min_count},{result.notch_max_count}]"
+            if result.notch_check_enabled
+            else " | notch=OFF"
+        )
         self.applied_threshold_label.setText(
-            f"Applied thresholds: score<={result.threshold:.3f} | diameter=[{result.diameter_min_mm:.3f}, {result.diameter_max_mm:.3f}] mm"
+            f"Applied thresholds: score<={result.threshold:.3f} | diameter=[{result.diameter_min_mm:.3f}, {result.diameter_max_mm:.3f}] mm{notch_text}"
         )
         ok_total = sum(1 for status in result.statuses if status == "OK")
         self.ok_label.setText(str(ok_total))
@@ -1319,7 +1327,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.model_label.setStyleSheet("")
         diameter_min_mm, diameter_max_mm = self._current_diameter_thresholds()
         self.applied_threshold_label.setText(
-            f"Applied thresholds: score<={threshold:.3f} | diameter=[{diameter_min_mm:.3f}, {diameter_max_mm:.3f}] mm"
+            f"Applied thresholds: score<={threshold:.3f} | diameter=[{diameter_min_mm:.3f}, {diameter_max_mm:.3f}] mm{self._current_notch_text()}"
         )
         self.statusBar().showMessage(
             f"Model switched: {recipe_name} (th={threshold:.3f})",
@@ -1425,6 +1433,13 @@ class MainWindow(QtWidgets.QMainWindow):
         # Safety fallback.
         algo = (self.config.models.algo or "INP").upper()
         return float(self.config.models.glass.glass_threshold if algo == "GLASS" else self.config.models.inp.inp_threshold)
+
+    def _current_notch_text(self) -> str:
+        if self._current_recipe_code is not None:
+            recipe = self._recipe_by_code.get(int(self._current_recipe_code))
+            if recipe is not None and bool(getattr(recipe, "notch_check_enabled", False)):
+                return f" | notch=[{int(recipe.notch_min_count)},{int(recipe.notch_max_count)}]"
+        return " | notch=OFF"
 
     def _current_diameter_thresholds(self) -> tuple[float, float]:
         if self._current_recipe_code is not None:
