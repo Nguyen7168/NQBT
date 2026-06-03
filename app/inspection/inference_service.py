@@ -62,6 +62,8 @@ def build_inference_runtime_state(config: AppConfig) -> Dict[str, Any]:
         "glass_threshold": float(config.models.glass.glass_threshold),
         "yolo_enabled": bool(config.models.yolo.enabled),
         "crop_path": getattr(config.models.yolo, "crop_path", None),
+        "notch_yolo_enabled": bool(config.models.notch_yolo.enabled),
+        "notch_yolo_path": getattr(config.models.notch_yolo, "path", None),
     }
 
 
@@ -87,6 +89,10 @@ def _apply_runtime_state(config: AppConfig, state: Dict[str, Any]) -> None:
     crop_path = state.get("crop_path")
     if crop_path:
         config.models.yolo.crop_path = str(crop_path)
+    config.models.notch_yolo.enabled = bool(state.get("notch_yolo_enabled", config.models.notch_yolo.enabled))
+    notch_yolo_path = state.get("notch_yolo_path")
+    if notch_yolo_path:
+        config.models.notch_yolo.path = str(notch_yolo_path)
 
 
 def _engine_cache_key(config_path: str, state: Dict[str, Any]) -> str:
@@ -109,6 +115,12 @@ def _result_to_dict(result: "InferenceResultPayload") -> Dict[str, Any]:
         "threshold": result.threshold,
         "diameter_min_mm": result.diameter_min_mm,
         "diameter_max_mm": result.diameter_max_mm,
+        "notch_counts": result.notch_counts,
+        "notch_ok": result.notch_ok,
+        "notch_check_enabled": result.notch_check_enabled,
+        "notch_min_count": result.notch_min_count,
+        "notch_max_count": result.notch_max_count,
+        "notch_inference_ms": result.notch_inference_ms,
         "anomaly_maps": result.anomaly_maps,
         "detected_circles": result.detected_circles,
         "expected_circles": result.expected_circles,

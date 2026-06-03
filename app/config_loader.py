@@ -93,6 +93,10 @@ class RecipeConfig:
     crop_yolo_path: Optional[str] = None
     diameter_min_mm: float = 0.0
     diameter_max_mm: float = 99999.0
+    notch_check_enabled: bool = False
+    notch_min_count: int = 0
+    notch_max_count: int = 999999
+    notch_yolo_path: Optional[str] = None
 
 
 @dataclass
@@ -141,11 +145,23 @@ class YoloModelConfig:
 
 
 @dataclass
+class NotchYoloConfig:
+    enabled: bool = False
+    path: Optional[str] = None
+    conf_thres: float = 0.25
+    iou_thres: float = 0.45
+    imgsz: int = 320
+    device: str = "cuda:0"
+    classes: Optional[List[int]] = None
+
+
+@dataclass
 class ModelConfig:
     algo: str = "INP"  # "INP" or "GLASS"
     inp: InpModelConfig = field(default_factory=lambda: InpModelConfig(path=""))
     glass: GlassModelConfig = field(default_factory=lambda: GlassModelConfig(path=""))
     yolo: YoloModelConfig = field(default_factory=YoloModelConfig)
+    notch_yolo: NotchYoloConfig = field(default_factory=NotchYoloConfig)
     active_recipe_code: Optional[int] = None
     recipes: List[RecipeConfig] = field(default_factory=list)
 
@@ -414,6 +430,7 @@ def load_config(path: str | Path) -> AppConfig:
     else:
         raise ConfigError("Missing models.inp and models.glass sections")
     yolo = YoloModelConfig(**models_raw.get("yolo", {}))
+    notch_yolo = NotchYoloConfig(**models_raw.get("notch_yolo", {}))
     recipes = []
     recipes_raw = models_raw.get("recipes", [])
     if not isinstance(recipes_raw, list) or not recipes_raw:
@@ -433,12 +450,16 @@ def load_config(path: str | Path) -> AppConfig:
         recipe_entry["glass_model_path"] = glass_model_path
         recipe_entry["diameter_min_mm"] = float(recipe_entry.get("diameter_min_mm", 0.0))
         recipe_entry["diameter_max_mm"] = float(recipe_entry.get("diameter_max_mm", 99999.0))
+        recipe_entry["notch_check_enabled"] = bool(recipe_entry.get("notch_check_enabled", False))
+        recipe_entry["notch_min_count"] = int(recipe_entry.get("notch_min_count", 0))
+        recipe_entry["notch_max_count"] = int(recipe_entry.get("notch_max_count", 999999))
         recipes.append(RecipeConfig(**recipe_entry))
     models = ModelConfig(
         algo=algo,
         inp=inp,
         glass=glass,
         yolo=yolo,
+        notch_yolo=notch_yolo,
         active_recipe_code=(int(models_raw["active_recipe_code"]) if models_raw.get("active_recipe_code") is not None else None),
         recipes=recipes,
     )

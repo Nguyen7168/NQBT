@@ -54,6 +54,12 @@ class InspectionResult:
     threshold: float
     diameter_min_mm: float
     diameter_max_mm: float
+    notch_counts: List[Optional[int]]
+    notch_ok: List[Optional[bool]]
+    notch_check_enabled: bool
+    notch_min_count: int
+    notch_max_count: int
+    notch_inference_ms: float
     anomaly_maps: Optional[List[np.ndarray]] = None  # Optional per-patch normalized maps
     detected_circles: Optional[int] = None
     expected_circles: Optional[int] = None
@@ -70,15 +76,28 @@ class InspectionResult:
                     "idx": patch.index,
                     "score": float(score),
                     "diameter_mm": (None if diameter is None else float(diameter)),
+                    "notch_count": (None if notch_count is None else int(notch_count)),
+                    "notch_ok": notch_ok,
                     "status": status,
                 }
-                for patch, score, diameter, status in zip(self.patches, self.anomaly_scores, self.diameters_mm, self.statuses)
+                for patch, score, diameter, notch_count, notch_ok, status in zip(
+                    self.patches,
+                    self.anomaly_scores,
+                    self.diameters_mm,
+                    self.notch_counts,
+                    self.notch_ok,
+                    self.statuses,
+                )
             ],
             "ng_total": self.ng_total,
             "inference_ms": self.anomaly_inference_ms,
             "cycle_elapsed_ms": self.cycle_elapsed_ms,
             "diameter_threshold_min_mm": float(self.diameter_min_mm),
             "diameter_threshold_max_mm": float(self.diameter_max_mm),
+            "notch_check_enabled": bool(self.notch_check_enabled),
+            "notch_min_count": int(self.notch_min_count),
+            "notch_max_count": int(self.notch_max_count),
+            "notch_inference_ms": float(self.notch_inference_ms),
             "yolo": None
             if self.yolo_result is None
             else {
@@ -196,6 +215,7 @@ class InspectionWorker(QtCore.QObject):
             f"crop_sort_ms={timings.get('crop_sort_ms', 0.0):.1f}ms",
             f"anomaly={timings.get('anomaly', 0.0):.1f}ms",
             f"anomaly_model={timings.get('anomaly_model', 0.0):.1f}ms",
+            f"notch_yolo={timings.get('notch_yolo', 0.0):.1f}ms",
             f"plc_busy={timings.get('plc_busy', 0.0):.1f}ms",
             f"plc_run={timings.get('plc_run', 0.0):.1f}ms",
             f"plc_camera_capture_done_clear={timings.get('plc_camera_capture_done_clear', 0.0):.1f}ms",
@@ -236,6 +256,12 @@ class InspectionWorker(QtCore.QObject):
             threshold=float(data["threshold"]),
             diameter_min_mm=float(data.get("diameter_min_mm", 0.0)),
             diameter_max_mm=float(data.get("diameter_max_mm", 99999.0)),
+            notch_counts=data.get("notch_counts", [None] * len(data.get("patches", []))),  # type: ignore[arg-type]
+            notch_ok=data.get("notch_ok", [None] * len(data.get("patches", []))),  # type: ignore[arg-type]
+            notch_check_enabled=bool(data.get("notch_check_enabled", False)),
+            notch_min_count=int(data.get("notch_min_count", 0)),
+            notch_max_count=int(data.get("notch_max_count", 999999)),
+            notch_inference_ms=float(data.get("notch_inference_ms", 0.0)),
             anomaly_maps=data.get("anomaly_maps"),  # type: ignore[arg-type]
             detected_circles=(None if data.get("detected_circles") is None else int(data["detected_circles"])),
             expected_circles=(None if data.get("expected_circles") is None else int(data["expected_circles"])),
