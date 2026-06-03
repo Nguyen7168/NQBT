@@ -137,7 +137,7 @@ models:
       diameter_max_mm: 5.4
       notch_check_enabled: false
       notch_min_count: 2
-      notch_max_count: 3
+      notch_max_count: 7
       notch_yolo_path: null
 
 io:
