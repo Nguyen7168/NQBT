@@ -44,10 +44,9 @@ class YoloDetector:
         self._classes = list(classes) if classes is not None else None
         self._device_failed_once = False
 
-    def detect(self, image: np.ndarray) -> YoloResult:
-        start = perf_counter()
+    def _predict(self, source: object):
         predict_kwargs = {
-            "source": image,
+            "source": source,
             "conf": self._conf,
             "iou": self._iou,
             "verbose": False,
@@ -59,23 +58,50 @@ class YoloDetector:
         if self._device and not self._device_failed_once:
             predict_kwargs["device"] = self._device
         try:
-            predictions = self._model.predict(**predict_kwargs)
+            return self._model.predict(**predict_kwargs)
         except Exception:
             if self._device and not self._device_failed_once:
                 self._device_failed_once = True
                 LOGGER.warning("YOLO predict failed with device=%s, retrying with default device", self._device)
                 predict_kwargs.pop("device", None)
-                predictions = self._model.predict(**predict_kwargs)
-            else:
-                raise
+                return self._model.predict(**predict_kwargs)
+            raise
+
+    @staticmethod
+    def _result_from_prediction(pred, inference_ms: float) -> YoloResult:
+        boxes: List[np.ndarray] = []
+        scores: List[float] = []
+        class_ids: List[int] = []
+        if pred.boxes is not None:
+            boxes.extend(pred.boxes.xyxy.cpu().numpy())
+            scores.extend(pred.boxes.conf.cpu().numpy())
+            class_ids.extend(pred.boxes.cls.cpu().numpy().astype(int))
+        return YoloResult(boxes=boxes, scores=scores, class_ids=class_ids, inference_ms=inference_ms)
+
+    def detect(self, image: np.ndarray) -> YoloResult:
+        start = perf_counter()
+        predictions = self._predict(image)
         elapsed = (perf_counter() - start) * 1000.0
         boxes: List[np.ndarray] = []
         scores: List[float] = []
         class_ids: List[int] = []
         for pred in predictions:
-            if pred.boxes is None:
-                continue
-            boxes.extend(pred.boxes.xyxy.cpu().numpy())
-            scores.extend(pred.boxes.conf.cpu().numpy())
-            class_ids.extend(pred.boxes.cls.cpu().numpy().astype(int))
+            result = self._result_from_prediction(pred, elapsed)
+            boxes.extend(result.boxes)
+            scores.extend(result.scores)
+            class_ids.extend(result.class_ids)
         return YoloResult(boxes=boxes, scores=scores, class_ids=class_ids, inference_ms=elapsed)
+
+    def detect_batch(self, images: Sequence[np.ndarray]) -> List[YoloResult]:
+        if not images:
+            return []
+        start = perf_counter()
+        predictions = self._predict(list(images))
+        elapsed = (perf_counter() - start) * 1000.0
+        per_image_ms = elapsed / max(len(images), 1)
+        results = [self._result_from_prediction(pred, per_image_ms) for pred in predictions]
+        if len(results) != len(images):
+            LOGGER.warning("YOLO batch returned %d predictions for %d images", len(results), len(images))
+        while len(results) < len(images):
+            results.append(YoloResult(boxes=[], scores=[], class_ids=[], inference_ms=0.0))
+        return results[: len(images)]

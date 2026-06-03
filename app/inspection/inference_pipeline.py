@@ -9,7 +9,7 @@ from typing import List, MutableMapping, Optional, Sequence
 import cv2
 import numpy as np
 
-from app.config_loader import AppConfig
+from app.config_loader import AppConfig, RecipeConfig
 from app.inspection.cropping import CropResult, CircleCropper, YoloCircleCropper
 from app.models.anomaly import AnomalyDetector
 from app.models.yolo import YoloDetector, YoloResult
@@ -33,6 +33,12 @@ class InferenceResultPayload:
     threshold: float
     diameter_min_mm: float
     diameter_max_mm: float
+    notch_counts: List[Optional[int]]
+    notch_ok: List[Optional[bool]]
+    notch_check_enabled: bool
+    notch_min_count: int
+    notch_max_count: int
+    notch_inference_ms: float
     anomaly_maps: Optional[List[np.ndarray]] = None
     detected_circles: Optional[int] = None
     expected_circles: Optional[int] = None
@@ -61,6 +67,8 @@ class InferencePipeline:
             except Exception as exc:
                 LOGGER.warning("Failed to initialise YOLO detector: %s", exc)
         self.crop_yolo: Optional[YoloDetector] = None
+        self.notch_yolo: Optional[YoloDetector] = None
+        self._notch_yolo_path: Optional[str] = None
         self._configure_cropper(crop_yolo_path=getattr(config.models.yolo, "crop_path", None))
         self._active_recipe_threshold = self._resolve_active_recipe_threshold()
 
@@ -85,6 +93,24 @@ class InferencePipeline:
         if algo == "GLASS":
             return float(self.config.models.glass.glass_threshold)
         return float(self.config.models.inp.inp_threshold)
+
+    def _resolve_active_recipe(self) -> Optional[RecipeConfig]:
+        active_code = getattr(self.config.models, "active_recipe_code", None)
+        recipes = list(getattr(self.config.models, "recipes", []))
+        if active_code is not None:
+            for recipe in recipes:
+                if int(getattr(recipe, "code", -1)) == int(active_code):
+                    return recipe
+        return recipes[0] if recipes else None
+
+    def _resolve_active_notch_limits(self) -> tuple[bool, int, int, Optional[str]]:
+        recipe = self._resolve_active_recipe()
+        if recipe is None:
+            return False, 0, 999999, None
+        min_count = max(0, int(getattr(recipe, "notch_min_count", 0)))
+        max_count = max(min_count, int(getattr(recipe, "notch_max_count", 999999)))
+        path = getattr(recipe, "notch_yolo_path", None) or getattr(self.config.models.notch_yolo, "path", None)
+        return bool(getattr(recipe, "notch_check_enabled", False)), min_count, max_count, path
 
     def _resolve_active_diameter_thresholds(self) -> tuple[float, float]:
         active_code = getattr(self.config.models, "active_recipe_code", None)
@@ -148,6 +174,57 @@ class InferencePipeline:
                 self.cropper = CircleCropper(self.config.layout)
             else:
                 raise
+
+    def _ensure_notch_yolo_detector(self, model_path: Optional[str]) -> YoloDetector:
+        notch_cfg = self.config.models.notch_yolo
+        if not bool(getattr(notch_cfg, "enabled", False)):
+            raise RuntimeError("Notch check is enabled for this recipe, but models.notch_yolo.enabled is false")
+        path = (model_path or getattr(notch_cfg, "path", None) or "").strip()
+        if not path:
+            raise RuntimeError("Notch check is enabled for this recipe, but no notch YOLO model path is configured")
+        if self.notch_yolo is not None and self._notch_yolo_path == path:
+            return self.notch_yolo
+        self.notch_yolo = YoloDetector(
+            path,
+            float(getattr(notch_cfg, "conf_thres", 0.25)),
+            float(getattr(notch_cfg, "iou_thres", 0.45)),
+            imgsz=int(getattr(notch_cfg, "imgsz", 320)),
+            device=str(getattr(notch_cfg, "device", "cuda:0")),
+            classes=getattr(notch_cfg, "classes", None),
+        )
+        self._notch_yolo_path = path
+        LOGGER.info("Loaded notch YOLO model from %s", path)
+        return self.notch_yolo
+
+    def _infer_notches(
+        self,
+        patches: Sequence[CropResult],
+        enabled: bool,
+        min_count: int,
+        max_count: int,
+        model_path: Optional[str],
+        timings: Optional[MutableMapping[str, float]],
+    ) -> tuple[List[Optional[int]], List[Optional[bool]], float]:
+        if not enabled:
+            return [None for _ in patches], [None for _ in patches], 0.0
+        if not patches:
+            return [], [], 0.0
+        detector = self._ensure_notch_yolo_detector(model_path)
+
+        def _detect() -> List[YoloResult]:
+            return detector.detect_batch([patch.image for patch in patches])
+
+        if timings is not None:
+            results = self._timed_call(timings, "notch_yolo", _detect)
+            assert isinstance(results, list)
+            inference_ms = float(timings.get("notch_yolo", 0.0))
+        else:
+            start = time.perf_counter()
+            results = _detect()
+            inference_ms = (time.perf_counter() - start) * 1000.0
+        counts = [len(result.boxes) for result in results]
+        ok = [int(min_count) <= int(count) <= int(max_count) for count in counts]
+        return counts, ok, inference_ms
 
     def reload_recipe_models(self, model_path: str, threshold: float, crop_yolo_path: str = "") -> tuple[str, float]:
         if (self.config.models.algo or "INP").upper() == "GLASS":
@@ -226,16 +303,26 @@ class InferencePipeline:
             for patch in patches
         ]
         diameter_min_mm, diameter_max_mm = self._resolve_active_diameter_thresholds()
+        notch_enabled, notch_min_count, notch_max_count, notch_model_path = self._resolve_active_notch_limits()
+        notch_counts, notch_ok, notch_inference_ms = self._infer_notches(
+            patches,
+            notch_enabled,
+            notch_min_count,
+            notch_max_count,
+            notch_model_path,
+            timings,
+        )
 
         statuses: List[str] = []
         if anomaly is not None:
-            for patch, score, diameter_mm in zip(patches, anomaly.scores, diameters_mm):
+            for score, diameter_mm, part_notch_ok in zip(anomaly.scores, diameters_mm, notch_ok):
                 score_ok = float(score) <= threshold
                 diameter_ok = (
                     diameter_mm is not None
                     and float(diameter_min_mm) <= float(diameter_mm) <= float(diameter_max_mm)
                 )
-                statuses.append("OK" if score_ok and diameter_ok else "NG")
+                notch_part_ok = True if part_notch_ok is None else bool(part_notch_ok)
+                statuses.append("OK" if score_ok and diameter_ok and notch_part_ok else "NG")
         ng_total = sum(1 for status in statuses if status == "NG")
 
         yolo_result = None
@@ -261,6 +348,12 @@ class InferencePipeline:
             threshold=threshold,
             diameter_min_mm=diameter_min_mm,
             diameter_max_mm=diameter_max_mm,
+            notch_counts=notch_counts,
+            notch_ok=notch_ok,
+            notch_check_enabled=notch_enabled,
+            notch_min_count=notch_min_count,
+            notch_max_count=notch_max_count,
+            notch_inference_ms=notch_inference_ms,
             anomaly_maps=anomaly.maps if anomaly is not None else None,
             detected_circles=detected,
             expected_circles=expected,

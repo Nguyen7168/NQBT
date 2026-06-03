@@ -15,6 +15,9 @@ window:
   width: 640
   height: 980
 
+ui:
+  show_notch_column: true
+
 inference_service:
   enabled: true
   host: "127.0.0.1"
@@ -102,6 +105,14 @@ models:
     crop_imgsz: 960
     crop_device: "cuda:0"
     crop_classes: null
+  notch_yolo:
+    enabled: true
+    path: "app/models/notch_yolo/best.pt"
+    conf_thres: 0.6
+    iou_thres: 0.45
+    imgsz: 480
+    device: "cuda:0"
+    classes: [0]
   active_recipe_code: 1
   recipes:
     - code: 1
@@ -112,6 +123,10 @@ models:
       crop_yolo_path: "app/models/crop_yolo/23-233HA-E/best.pt"
       diameter_min_mm: 4.8
       diameter_max_mm: 5.4
+      notch_check_enabled: true
+      notch_min_count: 2
+      notch_max_count: 3
+      notch_yolo_path: null
     - code: 2
       inp_model_path: "app/models/anomaly.onnx"
       glass_model_path: "app/models/23-233HA-E.pth"
@@ -120,6 +135,10 @@ models:
       crop_yolo_path: "app/models/crop_yolo/ITEM_2/best.pt"
       diameter_min_mm: 4.8
       diameter_max_mm: 5.4
+      notch_check_enabled: false
+      notch_min_count: 2
+      notch_max_count: 3
+      notch_yolo_path: null
 
 io:
   save_images: true

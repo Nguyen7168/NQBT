@@ -93,6 +93,10 @@ class RecipeConfig:
     crop_yolo_path: Optional[str] = None
     diameter_min_mm: float = 0.0
     diameter_max_mm: float = 99999.0
+    notch_check_enabled: bool = False
+    notch_min_count: int = 0
+    notch_max_count: int = 999999
+    notch_yolo_path: Optional[str] = None
 
 
 @dataclass
@@ -141,11 +145,23 @@ class YoloModelConfig:
 
 
 @dataclass
+class NotchYoloConfig:
+    enabled: bool = False
+    path: Optional[str] = None
+    conf_thres: float = 0.25
+    iou_thres: float = 0.45
+    imgsz: int = 320
+    device: str = "cuda:0"
+    classes: Optional[List[int]] = None
+
+
+@dataclass
 class ModelConfig:
     algo: str = "INP"  # "INP" or "GLASS"
     inp: InpModelConfig = field(default_factory=lambda: InpModelConfig(path=""))
     glass: GlassModelConfig = field(default_factory=lambda: GlassModelConfig(path=""))
     yolo: YoloModelConfig = field(default_factory=YoloModelConfig)
+    notch_yolo: NotchYoloConfig = field(default_factory=NotchYoloConfig)
     active_recipe_code: Optional[int] = None
     recipes: List[RecipeConfig] = field(default_factory=list)
 
@@ -214,6 +230,11 @@ class WindowConfig:
 
 
 @dataclass
+class UIConfig:
+    show_notch_column: bool = True
+
+
+@dataclass
 class InferenceServiceConfig:
     enabled: bool = False
     host: str = "127.0.0.1"
@@ -264,6 +285,7 @@ class AppConfig:
     measurement: MeasurementConfig = field(default_factory=MeasurementConfig)
     mirror: MirrorConfig = field(default_factory=MirrorConfig)
     custom_dialog: CustomDialogConfig = field(default_factory=CustomDialogConfig)
+    ui: UIConfig = field(default_factory=UIConfig)
     app_title: Optional[str] = None
     window: Optional[WindowConfig] = None
     sample_image_root: str = "samples"
@@ -414,6 +436,7 @@ def load_config(path: str | Path) -> AppConfig:
     else:
         raise ConfigError("Missing models.inp and models.glass sections")
     yolo = YoloModelConfig(**models_raw.get("yolo", {}))
+    notch_yolo = NotchYoloConfig(**models_raw.get("notch_yolo", {}))
     recipes = []
     recipes_raw = models_raw.get("recipes", [])
     if not isinstance(recipes_raw, list) or not recipes_raw:
@@ -433,12 +456,16 @@ def load_config(path: str | Path) -> AppConfig:
         recipe_entry["glass_model_path"] = glass_model_path
         recipe_entry["diameter_min_mm"] = float(recipe_entry.get("diameter_min_mm", 0.0))
         recipe_entry["diameter_max_mm"] = float(recipe_entry.get("diameter_max_mm", 99999.0))
+        recipe_entry["notch_check_enabled"] = bool(recipe_entry.get("notch_check_enabled", False))
+        recipe_entry["notch_min_count"] = int(recipe_entry.get("notch_min_count", 0))
+        recipe_entry["notch_max_count"] = int(recipe_entry.get("notch_max_count", 999999))
         recipes.append(RecipeConfig(**recipe_entry))
     models = ModelConfig(
         algo=algo,
         inp=inp,
         glass=glass,
         yolo=yolo,
+        notch_yolo=notch_yolo,
         active_recipe_code=(int(models_raw["active_recipe_code"]) if models_raw.get("active_recipe_code") is not None else None),
         recipes=recipes,
     )
@@ -458,6 +485,8 @@ def load_config(path: str | Path) -> AppConfig:
     mirror_raw = raw.get("mirror", {})
     mirror_cfg = MirrorConfig(**mirror_raw) if isinstance(mirror_raw, dict) else MirrorConfig()
     custom_dialog_cfg = _load_custom_dialog_config(raw)
+    ui_raw = raw.get("ui", {})
+    ui_cfg = UIConfig(**ui_raw) if isinstance(ui_raw, dict) else UIConfig()
 
     return AppConfig(
         camera=camera,
@@ -469,6 +498,7 @@ def load_config(path: str | Path) -> AppConfig:
         measurement=measurement_cfg,
         mirror=mirror_cfg,
         custom_dialog=custom_dialog_cfg,
+        ui=ui_cfg,
         app_title=(str(raw.get("app_title")).strip() if raw.get("app_title") is not None else None),
         window=window_cfg,
         sample_image_root=str(raw.get("sample_image_root", "samples")),
