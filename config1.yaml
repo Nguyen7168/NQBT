@@ -125,7 +125,7 @@ models:
       diameter_max_mm: 5.4
       notch_check_enabled: true
       notch_min_count: 2
-      notch_max_count: 3
+      notch_max_count: 6
       notch_yolo_path: null
     - code: 2
       inp_model_path: "app/models/anomaly.onnx"
