@@ -101,7 +101,7 @@ models:
     crop_enabled: true
     crop_path: "app/models/crop_yolo/23-233HA-E/best.pt"
     crop_conf_thres: 0.4
-    crop_iou_thres: 0.7
+    crop_iou_thres: 0.4
     crop_imgsz: 960
     crop_device: "cuda:0"
     crop_classes: null
@@ -125,7 +125,7 @@ models:
       diameter_max_mm: 5.4
       notch_check_enabled: true
       notch_min_count: 2
-      notch_max_count: 3
+      notch_max_count: 8
       notch_yolo_path: null
     - code: 2
       inp_model_path: "app/models/anomaly.onnx"
