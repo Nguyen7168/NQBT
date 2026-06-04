@@ -101,7 +101,7 @@ models:
     crop_enabled: true
     crop_path: "app/models/crop_yolo/23-233HA-E/best.pt"
     crop_conf_thres: 0.4
-    crop_iou_thres: 0.7
+    crop_iou_thres: 0.4
     crop_imgsz: 960
     crop_device: "cuda:0"
     crop_classes: null
@@ -122,7 +122,7 @@ models:
       threshold: 0.055
       crop_yolo_path: "app/models/crop_yolo/23-233HA-E/best.pt"
       diameter_min_mm: 4.8
-      diameter_max_mm: 5.4
+      diameter_max_mm: 5.22
       notch_check_enabled: true
       notch_min_count: 2
       notch_max_count: 6
