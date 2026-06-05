@@ -1,10 +1,28 @@
 """PyQt app to inspect cropped images with INP ONNX inference (Original/Heatmap/Binary)."""
 from __future__ import annotations
 
+import os
 import sys
+import traceback
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List
+
+# ── DLL path setup for NVIDIA libraries (must happen before any imports) ──
+_ENV_ROOT = os.path.dirname(os.path.dirname(sys.executable))
+_SITE_PACKAGES = os.path.join(_ENV_ROOT, "Lib", "site-packages")
+for _nv_dir in (
+    os.path.join(_SITE_PACKAGES, "nvidia", "cudnn", "bin"),
+    os.path.join(_SITE_PACKAGES, "nvidia", "cublas", "bin"),
+    os.path.join(_SITE_PACKAGES, "nvidia", "cuda_runtime", "bin"),
+):
+    if os.path.isdir(_nv_dir):
+        os.environ["PATH"] = _nv_dir + os.pathsep + os.environ["PATH"]
+
+# ⚠  IMPORTANT: onnxruntime must be imported BEFORE PyQt5.
+# PyQt5 loads Qt DLLs that can interfere with ORT's DLL initialization.
+# Ensure onnxruntime is fully loaded first so its DLLs resolve correctly.
+import onnxruntime  # noqa: E402
 
 import cv2
 import numpy as np
@@ -14,6 +32,58 @@ from app.config_loader import ConfigError, load_config
 from app.models.anomaly import AnomalyDetector
 
 IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff", ".webp"}
+
+
+def _detect_ort_info() -> dict:
+    info = {
+        "python_exe": sys.executable,
+        "python_version": sys.version.split()[0],
+        "ort_version": "N/A",
+        "ort_type": "N/A",
+        "ort_file": "N/A",
+        "providers": "N/A",
+        "import_ok": False,
+        "import_error": "",
+    }
+    try:
+        import onnxruntime as ort
+        info["ort_version"] = ort.__version__
+        info["ort_file"] = getattr(ort, "__file__", "N/A")
+        raw_providers = ort.get_available_providers()
+        info["providers"] = ", ".join(raw_providers)
+        info["import_ok"] = True
+        if "CUDAExecutionProvider" in raw_providers:
+            info["ort_type"] = "onnxruntime-gpu"
+        elif "CPUExecutionProvider" in raw_providers:
+            info["ort_type"] = "onnxruntime (CPU)"
+    except Exception as exc:
+        info["import_error"] = f"{type(exc).__name__}: {exc}"
+        info["ort_type"] = "FAILED TO IMPORT"
+        try:
+            import pkg_resources
+            for dist in pkg_resources.working_set:
+                name = dist.project_name.lower()
+                if "onnxruntime" in name:
+                    info["ort_type"] = f"INSTALLED: {dist.project_name}=={dist.version}"
+                    info["ort_version"] = str(dist.version)
+                    info["ort_file"] = str(dist.location)
+                    break
+        except Exception:
+            pass
+    return info
+
+
+def _collect_cuda_diagnostic() -> dict:
+    diag = {"cuda_path_env": os.environ.get("CUDA_PATH", "not set"),
+             "cuda_118_bin": os.path.isdir(r"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v11.8\bin"),
+             "cuda_12x_dirs": []}
+    base = r"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA"
+    if os.path.isdir(base):
+        for entry in os.listdir(base):
+            ver_path = os.path.join(base, entry)
+            if os.path.isdir(ver_path) and os.path.isdir(os.path.join(ver_path, "bin")):
+                diag["cuda_12x_dirs"].append(entry)
+    return diag
 
 
 @dataclass
@@ -51,14 +121,22 @@ class InpOnnxViewer(QtWidgets.QWidget):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("INP ONNX Crop Viewer")
-        self.resize(1280, 760)
+        self.resize(1400, 820)
 
         self.config_path = QtWidgets.QLineEdit("config.yaml")
-        self.model_path = QtWidgets.QLineEdit()
-        self.input_dir = QtWidgets.QLineEdit()
+        self.model_path = QtWidgets.QLineEdit(
+            "D:/DataMea14/NGUYEN/NQBT/app/models/anomaly.onnx"
+        )
+        self.input_dir = QtWidgets.QLineEdit(
+            "D:/DataMea14/NGUYEN/INP/mvtec_anomaly_detection/nqbt/test/bad"
+        )
+        self.provider_combo = QtWidgets.QComboBox()
+        self.provider_combo.addItems(["CPU", "CUDA", "Auto"])
+        self.provider_combo.setCurrentText("CPU")
         self.threshold = QtWidgets.QDoubleSpinBox()
         self.threshold.setDecimals(6)
         self.threshold.setRange(-1e9, 1e9)
+        self.threshold.setValue(0.056)
         self.batch_size = QtWidgets.QSpinBox()
         self.batch_size.setRange(1, 4096)
         self.batch_size.setValue(28)
@@ -66,7 +144,7 @@ class InpOnnxViewer(QtWidgets.QWidget):
         self.bin_threshold.setDecimals(6)
         self.bin_threshold.setRange(0, 1)
         self.bin_threshold.setSingleStep(0.01)
-        self.bin_threshold.setValue(0.2)
+        self.bin_threshold.setValue(0.8)
         self.btn_run = QtWidgets.QPushButton("Run INP ONNX")
         self.btn_run.clicked.connect(self.run_inference)
 
@@ -86,6 +164,16 @@ class InpOnnxViewer(QtWidgets.QWidget):
         self.log = QtWidgets.QPlainTextEdit()
         self.log.setReadOnly(True)
 
+        self.debug_label = QtWidgets.QLabel("Diagnostics")
+        self.debug_label.setStyleSheet("font-weight:700; color:#0a0;")
+        self.debug_text = QtWidgets.QPlainTextEdit()
+        self.debug_text.setReadOnly(True)
+        self.debug_text.setMaximumBlockCount(100)
+        self.debug_text.setStyleSheet("font-family:Consolas; font-size:11px;")
+
+        self.btn_refresh_diag = QtWidgets.QPushButton("Refresh Diagnostics")
+        self.btn_refresh_diag.clicked.connect(self._refresh_diagnostics)
+
         root = QtWidgets.QVBoxLayout(self)
         root.addLayout(self._row("Config", self.config_path, self._btn(self.pick_config)))
         root.addLayout(self._row("Model ONNX", self.model_path, self._btn(self.pick_model)))
@@ -94,7 +182,16 @@ class InpOnnxViewer(QtWidgets.QWidget):
         root.addWidget(self.btn_run)
 
         body = QtWidgets.QHBoxLayout()
-        body.addWidget(self.list_widget, 2)
+        left_panel = QtWidgets.QVBoxLayout()
+        left_panel.addWidget(self.list_widget, 3)
+
+        diag_header = QtWidgets.QHBoxLayout()
+        diag_header.addWidget(self.debug_label, 1)
+        diag_header.addWidget(self.btn_refresh_diag)
+        left_panel.addLayout(diag_header)
+        left_panel.addWidget(self.debug_text, 1)
+        body.addLayout(left_panel, 2)
+
         right = QtWidgets.QVBoxLayout()
         imgs = QtWidgets.QHBoxLayout()
         imgs.addWidget(self.lbl_original, 1)
@@ -107,6 +204,7 @@ class InpOnnxViewer(QtWidgets.QWidget):
         root.addLayout(body, 1)
 
         self.results: List[ItemResult] = []
+        self._refresh_diagnostics()
 
     def _btn(self, slot):
         b = QtWidgets.QPushButton("Browse")
@@ -128,8 +226,45 @@ class InpOnnxViewer(QtWidgets.QWidget):
         row.addWidget(self.batch_size)
         row.addWidget(QtWidgets.QLabel("Binary Thres"))
         row.addWidget(self.bin_threshold)
+        row.addWidget(QtWidgets.QLabel("Provider"))
+        row.addWidget(self.provider_combo)
         row.addStretch(1)
         return row
+
+    def _refresh_diagnostics(self):
+        self.debug_text.clear()
+        ort_info = _detect_ort_info()
+        cuda_diag = _collect_cuda_diagnostic()
+
+        lines = [
+            "=== SYSTEM ===",
+            f"Python executable : {ort_info['python_exe']}",
+            f"Python version    : {ort_info['python_version']}",
+            "",
+            "=== ONNXRUNTIME ===",
+            f"Type              : {ort_info['ort_type']}",
+            f"Version           : {ort_info['ort_version']}",
+            f"Location          : {ort_info['ort_file']}",
+            f"Available providers: {ort_info['providers']}",
+            f"Import OK         : {ort_info['import_ok']}",
+        ]
+        if ort_info["import_error"]:
+            lines.append(f"Import error      : {ort_info['import_error']}")
+
+        lines.extend([
+            "",
+            "=== CUDA ENVIRONMENT ===",
+            f"CUDA_PATH env      : {cuda_diag['cuda_path_env']}",
+            f"CUDA v11.8 bin     : {'FOUND' if cuda_diag['cuda_118_bin'] else 'NOT FOUND'}",
+            f"CUDA 12.x dirs     : {', '.join(cuda_diag['cuda_12x_dirs']) if cuda_diag['cuda_12x_dirs'] else 'none'}",
+            "",
+            f"Provider selected  : {self.provider_combo.currentText()}",
+            f"Site-packages      : {_SITE_PACKAGES}",
+        ])
+
+        for line in lines:
+            self.debug_text.appendPlainText(line)
+        self.debug_text.verticalScrollBar().setValue(0)
 
     def _collect_images(self, root: Path) -> List[Path]:
         return sorted([p for p in root.rglob("*") if p.is_file() and p.suffix.lower() in IMAGE_EXTS])
@@ -159,13 +294,22 @@ class InpOnnxViewer(QtWidgets.QWidget):
         self.log.clear()
         self.btn_run.setEnabled(False)
         try:
+            provider_choice = self.provider_combo.currentText()
             cfg = load_config(self.config_path.text().strip())
             cfg.models.algo = "INP"
             cfg.models.inp.path = self.model_path.text().strip()
-            cfg.models.inp.inp_mode = "default"
-            self.threshold.setValue(float(cfg.models.inp.inp_threshold))
-            self.bin_threshold.setValue(float(cfg.models.inp.inp_bin_thresh))
-            detector = AnomalyDetector(cfg.models)
+            cfg.models.inp.inp_mode = cfg.models.inp.inp_mode or "legacy_script"
+
+            self._log(f"Provider mode: {provider_choice}")
+            if provider_choice == "CPU":
+                cfg.models.inp.provider = "cpu"
+            elif provider_choice == "CUDA":
+                cfg.models.inp.provider = "cuda"
+            else:
+                cfg.models.inp.provider = "cuda"
+
+            self._log(f"Loading model: {cfg.models.inp.path}")
+            detector = self._create_detector(cfg)
 
             paths = self._collect_images(Path(self.input_dir.text().strip()))
             if not paths:
@@ -206,12 +350,36 @@ class InpOnnxViewer(QtWidgets.QWidget):
                 self.list_widget.addItem(f"{it.path.name} | {it.score:.6f} | {it.status}")
             if self.results:
                 self.list_widget.setCurrentRow(0)
-            self._log("Done.")
+            ng_count = sum(1 for r in self.results if r.status == "NG")
+            ok_count = len(self.results) - ng_count
+            self._log(f"Done.  OK: {ok_count}  |  NG: {ng_count}  (threshold={self.threshold.value():.6f})")
         except (RuntimeError, ConfigError) as exc:
-            QtWidgets.QMessageBox.critical(self, "Error", str(exc))
+            detail_msg = str(exc)
+            if "onnxruntime" in detail_msg.lower() or "dll" in detail_msg.lower():
+                detail_msg += f"\n\nCurrent provider: {self.provider_combo.currentText()}\nTry switching to 'CPU' provider."
+            QtWidgets.QMessageBox.critical(self, "Error", detail_msg)
             self._log(f"[ERROR] {exc}")
+        except Exception as exc:
+            detail_msg = f"{type(exc).__name__}: {exc}"
+            self._log(f"[UNEXPECTED ERROR] {detail_msg}")
+            self._log(traceback.format_exc())
         finally:
             self.btn_run.setEnabled(True)
+
+    def _create_detector(self, cfg):
+        try:
+            return AnomalyDetector(cfg.models)
+        except RuntimeError as exc:
+            detail = str(exc)
+            provider = self.provider_combo.currentText()
+            if provider in ("Auto", "CUDA") and ("cuda" in detail.lower() or "dll" in detail.lower() or "onnxruntime" in detail.lower()):
+                self._log("[WARN] CUDA failed, retrying with CPU provider...")
+                self._log(f"  {detail}")
+                cfg.models.inp.provider = "cpu"
+                self.provider_combo.setCurrentText("CPU")
+                self._refresh_diagnostics()
+                return AnomalyDetector(cfg.models)
+            raise
 
     def on_select_row(self, row: int):
         if row < 0 or row >= len(self.results):
